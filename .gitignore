@@ -1,0 +1,83 @@
+# ── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.pyd
+*.pyo
+.Python
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+MANIFEST
+
+# ── Virtual Environments ──────────────────────────────────────────────────────
+.venv*/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# ── Environment & Secrets ─────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── ML / Model Artifacts ─────────────────────────────────────────────────────
+# HuggingFace & torch caches (downloaded model weights)
+.cache/
+*.bin
+*.safetensors
+*.pt
+*.pth
+*.ckpt
+
+# FAISS indices (large binary files)
+FAISS/*.faiss
+FAISS/metadata.json
+
+# ── Test Media (tracked folder, ignored content) ──────────────────────────────
+# Place test videos/images in test_data/ — folder is in the repo, files are not.
+test_data/*
+!test_data/.gitkeep
+
+# ── Gradio / Streamlit ───────────────────────────────────────────────────────
+gradio_cached_examples/
+.gradio/
+.streamlit/
+flagged/
+
+# ── Jupyter ──────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb
+
+# ── Logs & Temp ──────────────────────────────────────────────────────────────
+*.log
+*.tmp
+*.temp
+tmp/
+temp/
+
+# ── OS ───────────────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# ── IDEs ─────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── Benchmark outputs ────────────────────────────────────────────────────────
+benchmarks/results/*.csv
+benchmarks/results/*.json
+benchmarks/results/plots/
