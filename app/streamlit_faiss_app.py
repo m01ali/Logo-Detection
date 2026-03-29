@@ -139,6 +139,9 @@ def initialize_metrics():
         "total_processed": 0,
         # NEW: manual global-only input
         "missed_logos_manual": 0,
+        # Tracking: small logos and multiple logos in frame
+        "small_logos": 0,
+        "multiple_logos": 0,
 
         "top2k_brands": {
             "processed": 0, 
@@ -710,6 +713,35 @@ def review_unknown_logos_tab(db, AUGMENTATIONS=None):
             st.success(f"Bulk processed {processed} item(s) and added to FAISS. Skipped {skipped} without labels.")
             st.rerun()
 
+    # --- Bottom navigation (4.4: next page button also at end of page) ---
+    st.markdown("---")
+    st.caption(f"Page {current_page} of {total_pages}")
+    nav_bot = st.columns([1, 2, 2, 2, 1])
+    with nav_bot[0]:
+        if st.button("⏮ First", key="u_bot_first"):
+            ss.unknown_page_num = 1
+            st.rerun()
+    with nav_bot[1]:
+        if st.button("◀ Prev", key="u_bot_prev"):
+            ss.unknown_page_num = max(1, ss.unknown_page_num - 1)
+            st.rerun()
+    with nav_bot[2]:
+        new_page_bot = st.number_input(
+            "Page", min_value=1, max_value=total_pages,
+            value=max(1, min(ss.unknown_page_num, total_pages)),
+            step=1, key="u_bot_page_input"
+        )
+        if int(new_page_bot) != ss.unknown_page_num:
+            ss.unknown_page_num = int(new_page_bot)
+            st.rerun()
+    with nav_bot[3]:
+        if st.button("Next ▶", key="u_bot_next"):
+            ss.unknown_page_num = min(total_pages, ss.unknown_page_num + 1)
+            st.rerun()
+    with nav_bot[4]:
+        if st.button("Last ⏭", key="u_bot_last"):
+            ss.unknown_page_num = total_pages
+            st.rerun()
 
 
 # Call the function
@@ -757,11 +789,13 @@ def review_known_logos_tab(db, AUGMENTATIONS=None):
         has_source_col = "source" in df.columns
         has_correction_col = "correction" in df.columns
         has_postfilter_col = "postfilter_verdict" in df.columns
+        has_family_col = "family" in df.columns
     else:
         df = pd.DataFrame(columns=["filename", "brand"])
         has_source_col = False
         has_correction_col = False
         has_postfilter_col = False
+        has_family_col = False
 
     if os.path.isdir(known_base_dir):
         all_images = sorted([
@@ -772,6 +806,7 @@ def review_known_logos_tab(db, AUGMENTATIONS=None):
             df = pd.DataFrame({"filename": all_images, "brand": ["" for _ in all_images]})
             has_correction_col = False
             has_postfilter_col = False
+            has_family_col = False
         else:
             df = df[df["filename"].isin(all_images)].reset_index(drop=True)
     else:
@@ -797,10 +832,14 @@ def review_known_logos_tab(db, AUGMENTATIONS=None):
     ss.setdefault("bulk_selection", {})
     ss.setdefault("original_df", df.copy())
     ss.setdefault("corrections_map", {})  # filepath -> correction type
+    ss.setdefault("known_family_buffer", {})   # filepath -> family name (4.1)
+    ss.setdefault("small_logo_flags", {})      # filepath -> bool (4.2)
+    ss.setdefault("multiple_logo_flags", {})   # filepath -> bool (4.2)
 
     # NEW: remember filters to reset selection when they change
     ss.setdefault("last_selected_brand", None)
     ss.setdefault("last_selected_postfilter", None)
+    ss.setdefault("last_selected_review_status", None)
 
     # Helper: normalize correction label
     def _normalize_correction(val: str) -> str:
@@ -908,17 +947,52 @@ def review_known_logos_tab(db, AUGMENTATIONS=None):
     else:
         selected_postfilter = "All verdicts"  # no-op default
 
-    # Reset selection if either filter changed
-    if ss.get("last_selected_brand") != selected_brand or ss.get("last_selected_postfilter") != selected_postfilter:
+    # ---------- NEW: Review status filter (4.4) ----------
+    review_status_options = [
+        "All",
+        "Not reviewed yet",
+        "Confirmed",
+        "False positive",
+        "Typo",
+        "Wrong attribution",
+    ]
+    selected_review_status = st.selectbox(
+        "Filter by review status",
+        review_status_options,
+        key="selected_review_status_known",
+        help="Filter by what correction/confirmation has been applied in this session."
+    )
+
+    # Reset selection if any filter changed
+    if (
+        ss.get("last_selected_brand") != selected_brand
+        or ss.get("last_selected_postfilter") != selected_postfilter
+        or ss.get("last_selected_review_status") != selected_review_status
+    ):
         ss.bulk_selection = {}
         ss.select_all_known_prev = False
         ss.last_selected_brand = selected_brand
         ss.last_selected_postfilter = selected_postfilter
+        ss.last_selected_review_status = selected_review_status
 
     # Apply filters
     filtered_df = df if selected_brand == "All brands" else df[df["brand"] == selected_brand]
     if has_postfilter_col and selected_postfilter != "All verdicts":
         filtered_df = filtered_df[filtered_df["postfilter_verdict"] == selected_postfilter]
+    # Review status filter
+    if selected_review_status != "All":
+        _status_map = {
+            "Not reviewed yet": lambda p: ss.corrections_map.get(p, "") == "",
+            "Confirmed":        lambda p: ss.corrections_map.get(p, "") == "confirm",
+            "False positive":   lambda p: ss.corrections_map.get(p, "") == "false_positive",
+            "Typo":             lambda p: ss.corrections_map.get(p, "") == "typo",
+            "Wrong attribution": lambda p: ss.corrections_map.get(p, "") == "wrong",
+        }
+        _pred = _status_map.get(selected_review_status)
+        if _pred:
+            filtered_df = filtered_df[
+                filtered_df["filepath"].apply(lambda fp: _pred(str(fp)))
+            ]
     filtered_df = filtered_df.reset_index(drop=True)
 
     # --- Postfilter verdict summary (only if column exists) ---
@@ -954,6 +1028,27 @@ def review_known_logos_tab(db, AUGMENTATIONS=None):
 
         st.markdown("---")
 
+    # --- Family statistics (4.1 / 4.2) ---
+    st.markdown("#### 👨‍👩‍👧 Family Statistics")
+    family_counts: dict = {}
+    for _, _frow in df.iterrows():
+        _fp = str(_frow["filepath"])
+        _fam = ss.known_family_buffer.get(
+            _fp,
+            str(_frow.get("family", "") or "") if has_family_col else ""
+        ).strip()
+        if _fam:
+            family_counts[_fam] = family_counts.get(_fam, 0) + 1
+    if family_counts:
+        _fam_df = (
+            pd.DataFrame(list(family_counts.items()), columns=["Family", "Image Count"])
+            .sort_values("Image Count", ascending=False)
+            .reset_index(drop=True)
+        )
+        st.dataframe(_fam_df, use_container_width=True, hide_index=True)
+    else:
+        st.caption("No family names assigned yet. Use the **Family** field under each logo to assign one.")
+    st.markdown("---")
 
     if not filtered_df.empty:
 
@@ -988,6 +1083,18 @@ def review_known_logos_tab(db, AUGMENTATIONS=None):
             mask = export_df["filepath"].astype(str) == path_str
             if mask.any():
                 export_df.loc[mask, "correction"] = corr
+
+        # Add / update family column from buffer (4.1)
+        if "family" not in export_df.columns:
+            export_df["family"] = ""
+        export_df["family"] = export_df["filename"].apply(
+            lambda fn: ss.known_family_buffer.get(
+                str(Path(known_base_dir) / fn),
+                str(df.loc[df["filename"] == fn, "family"].iloc[0])
+                if has_family_col and (df["filename"] == fn).any()
+                else ""
+            ) or ""
+        )
 
         # Drop internal columns and prepare CSV
         export_df = export_df.drop(columns=["filepath"])
@@ -1048,6 +1155,40 @@ def review_known_logos_tab(db, AUGMENTATIONS=None):
                 new_brand = st.text_input(label, value=current_brand, key=f"brand_{row['filename']}").strip()
                 if new_brand and _norm(new_brand) != _norm(current_brand):
                     ss.known_brand_buffer[path_str] = new_brand
+
+                # Family name input (4.1)
+                current_family = ss.known_family_buffer.get(
+                    path_str,
+                    str(row.get("family", "") or "") if has_family_col else ""
+                )
+                new_family = st.text_input(
+                    f"Family for {row['filename']}",
+                    value=current_family,
+                    key=f"family_{row['filename']}",
+                    placeholder="e.g. RAI, Sky…"
+                ).strip()
+                ss.known_family_buffer[path_str] = new_family
+
+                # Tracking checkboxes (4.2)
+                chk_c1, chk_c2 = st.columns(2)
+                with chk_c1:
+                    prev_small = ss.small_logo_flags.get(path_str, False)
+                    is_small = st.checkbox(
+                        "Small logo",
+                        value=prev_small,
+                        key=f"kl_small_{row['filename']}",
+                        help="Logo occupies a very small area of the image"
+                    )
+                    ss.small_logo_flags[path_str] = is_small
+                with chk_c2:
+                    prev_multi = ss.multiple_logo_flags.get(path_str, False)
+                    is_multi = st.checkbox(
+                        "Multiple logos",
+                        value=prev_multi,
+                        key=f"kl_multi_{row['filename']}",
+                        help="Frame shows 2+ logos (fully or partially)"
+                    )
+                    ss.multiple_logo_flags[path_str] = is_multi
 
                 # per-item quick actions
                 btn_col1, btn_col2, btn_col3 = st.columns(3)
@@ -1227,6 +1368,26 @@ def global_metrics_tab():
     with col4:
         st.metric("Confirmed Attributions", _fmt_with_pct(metrics["confirmed_attributions"]))
         st.metric("Total Processed", metrics["total_processed"])
+
+    # Tracking metrics: small logos and multiple logos (4.2)
+    # Computed live from session state flags set in the Known Logos tab
+    small_logos_count = sum(1 for v in st.session_state.get("small_logo_flags", {}).values() if v)
+    multiple_logos_count = sum(1 for v in st.session_state.get("multiple_logo_flags", {}).values() if v)
+    st.markdown("---")
+    st.subheader("🏷️ Tracking Metrics")
+    tr_col1, tr_col2 = st.columns(2)
+    with tr_col1:
+        st.metric(
+            "Small Logos",
+            small_logos_count,
+            help="Logos flagged as occupying a very small area of the image"
+        )
+    with tr_col2:
+        st.metric(
+            "Multiple Logos in Frame",
+            multiple_logos_count,
+            help="Frames where 2+ logos are visible (fully or partially)"
+        )
 
     # NEW: Manual Missed Logos (Global-only) — bug-free single click
     st.markdown("---")

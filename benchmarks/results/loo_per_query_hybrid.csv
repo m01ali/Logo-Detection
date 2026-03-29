@@ -1,0 +1,109 @@
+query_image,true_brand,rank1_brand,rank1_prod_score,rank1_cosine_score,rank3_brands,rank5_brands,recall_at_1,recall_at_3,recall_at_5,reciprocal_rank
+1.jpg,ING,ING,0.8982,0.7965,ING;ING;ING,ING;ING;ING;rai sport;rai sport,1,1,1,1.0000
+2.png,ING,ING,0.8927,0.7854,ING;ING;ING,ING;ING;ING;ING;rai sport,1,1,1,1.0000
+3.jpg,ING,ING,0.8976,0.7952,ING;ING;ING,ING;ING;ING;rai sport;rai sport,1,1,1,1.0000
+4.png,ING,ING,0.8982,0.7965,ING;ING;ING,ING;ING;ING;rai sport;rai sport,1,1,1,1.0000
+5.png,ING,ING,0.7971,0.5941,ING;ING;ING,ING;ING;ING;ING;rai sport,1,1,1,1.0000
+1.png,Italia Zuccheri,Italia Zuccheri,0.9427,0.8855,Italia Zuccheri;Italia Zuccheri;Italia Zuccheri,Italia Zuccheri;Italia Zuccheri;Italia Zuccheri;Italia Zuccheri;Italia Zuccheri,1,1,1,1.0000
+2.png,Italia Zuccheri,Italia Zuccheri,0.8597,0.7193,Italia Zuccheri;Italia Zuccheri;iperceramica,Italia Zuccheri;Italia Zuccheri;iperceramica;Italia Zuccheri;rai sport,1,1,1,1.0000
+3.png,Italia Zuccheri,Italia Zuccheri,0.9368,0.8735,Italia Zuccheri;Italia Zuccheri;Italia Zuccheri,Italia Zuccheri;Italia Zuccheri;Italia Zuccheri;Italia Zuccheri;Italia Zuccheri,1,1,1,1.0000
+4.jpeg,Italia Zuccheri,Italia Zuccheri,0.8689,0.7379,Italia Zuccheri;Italia Zuccheri;Italia Zuccheri,Italia Zuccheri;Italia Zuccheri;Italia Zuccheri;Italia Zuccheri;Italia Zuccheri,1,1,1,1.0000
+5.jpeg,Italia Zuccheri,Italia Zuccheri,0.9043,0.8086,Italia Zuccheri;Italia Zuccheri;Italia Zuccheri,Italia Zuccheri;Italia Zuccheri;Italia Zuccheri;Italia Zuccheri;Italia Zuccheri,1,1,1,1.0000
+6.png,Italia Zuccheri,Italia Zuccheri,0.9316,0.8631,Italia Zuccheri;Italia Zuccheri;Italia Zuccheri,Italia Zuccheri;Italia Zuccheri;Italia Zuccheri;Italia Zuccheri;Italia Zuccheri,1,1,1,1.0000
+7.jpeg,Italia Zuccheri,Italia Zuccheri,0.8330,0.6661,Italia Zuccheri;Italia Zuccheri;Italia Zuccheri,Italia Zuccheri;Italia Zuccheri;Italia Zuccheri;Italia Zuccheri;Italia Zuccheri,1,1,1,1.0000
+8.png,Italia Zuccheri,Italia Zuccheri,0.9427,0.8855,Italia Zuccheri;Italia Zuccheri;Italia Zuccheri,Italia Zuccheri;Italia Zuccheri;Italia Zuccheri;Italia Zuccheri;Italia Zuccheri,1,1,1,1.0000
+1.png,San Benedetto,San Benedetto,0.8932,0.7864,San Benedetto;San Benedetto;San Benedetto,San Benedetto;San Benedetto;San Benedetto;San Benedetto;San Benedetto,1,1,1,1.0000
+2.png,San Benedetto,San Benedetto,0.9226,0.8451,San Benedetto;San Benedetto;San Benedetto,San Benedetto;San Benedetto;San Benedetto;San Benedetto;San Benedetto,1,1,1,1.0000
+3.jpeg,San Benedetto,San Benedetto,0.9103,0.8206,San Benedetto;San Benedetto;San Benedetto,San Benedetto;San Benedetto;San Benedetto;San Benedetto;San Benedetto,1,1,1,1.0000
+4.jpeg,San Benedetto,San Benedetto,0.9103,0.8206,San Benedetto;San Benedetto;San Benedetto,San Benedetto;San Benedetto;San Benedetto;San Benedetto;San Benedetto,1,1,1,1.0000
+5.jpeg,San Benedetto,San Benedetto,0.8584,0.7169,San Benedetto;San Benedetto;San Benedetto,San Benedetto;San Benedetto;San Benedetto;San Benedetto;SantAnna,1,1,1,1.0000
+6.png,San Benedetto,San Benedetto,0.9226,0.8451,San Benedetto;San Benedetto;San Benedetto,San Benedetto;San Benedetto;San Benedetto;San Benedetto;San Benedetto,1,1,1,1.0000
+7.jpeg,San Benedetto,San Benedetto,0.8886,0.7772,San Benedetto;San Benedetto;San Benedetto,San Benedetto;San Benedetto;San Benedetto;San Benedetto;San Benedetto,1,1,1,1.0000
+1.jpeg,SantAnna,SantAnna,0.8796,0.7591,SantAnna;SantAnna;SantAnna,SantAnna;SantAnna;SantAnna;SantAnna;SantAnna,1,1,1,1.0000
+2.jpeg,SantAnna,SantAnna,0.8766,0.7532,SantAnna;SantAnna;SantAnna,SantAnna;SantAnna;SantAnna;SantAnna;SantAnna,1,1,1,1.0000
+3.jpeg,SantAnna,SantAnna,0.9556,0.9113,SantAnna;SantAnna;SantAnna,SantAnna;SantAnna;SantAnna;SantAnna;SantAnna,1,1,1,1.0000
+4.jpg,SantAnna,SantAnna,0.9159,0.8318,SantAnna;SantAnna;SantAnna,SantAnna;SantAnna;SantAnna;SantAnna;SantAnna,1,1,1,1.0000
+5.jpeg,SantAnna,SantAnna,0.8974,0.7949,SantAnna;SantAnna;SantAnna,SantAnna;SantAnna;SantAnna;SantAnna;SantAnna,1,1,1,1.0000
+6.jpeg,SantAnna,SantAnna,0.8803,0.7606,SantAnna;SantAnna;SantAnna,SantAnna;SantAnna;SantAnna;SantAnna;SantAnna,1,1,1,1.0000
+7.jpeg,SantAnna,SantAnna,0.9556,0.9113,SantAnna;SantAnna;SantAnna,SantAnna;SantAnna;SantAnna;SantAnna;SantAnna,1,1,1,1.0000
+1.png,alfasigma,alfasigma,0.8675,0.7351,alfasigma;alfasigma;alfasigma,alfasigma;alfasigma;alfasigma;frosta;moneyfarm,1,1,1,1.0000
+2.png,alfasigma,rai sport,0.7512,0.5023,rai sport;alfasigma;rai sport,rai sport;alfasigma;rai sport;alfasigma;rai sport,0,1,1,0.5000
+5.png,alfasigma,alfasigma,0.8194,0.6387,alfasigma;moneyfarm;moneyfarm,alfasigma;moneyfarm;moneyfarm;moneyfarm;nurofen,1,1,1,1.0000
+6.png,alfasigma,alfasigma,0.8675,0.7351,alfasigma;alfasigma;rai sport,alfasigma;alfasigma;rai sport;rai sport;moneyfarm,1,1,1,1.0000
+7.jpg,alfasigma,alfasigma,0.8659,0.7317,alfasigma;alfasigma;alfasigma,alfasigma;alfasigma;alfasigma;rai sport;nurofen,1,1,1,1.0000
+1.png,frosta,frosta,0.9081,0.8163,frosta;frosta;frosta,frosta;frosta;frosta;frosta;frosta,1,1,1,1.0000
+2.png,frosta,frosta,0.9168,0.8336,frosta;rai sport;frosta,frosta;rai sport;frosta;frosta;rai sport,1,1,1,1.0000
+3.png,frosta,frosta,0.9081,0.8163,frosta;frosta;frosta,frosta;frosta;frosta;frosta;frosta,1,1,1,1.0000
+4.jpg,frosta,frosta,0.9844,0.9687,frosta;frosta;frosta,frosta;frosta;frosta;frosta;frosta,1,1,1,1.0000
+5.jpg,frosta,frosta,0.9844,0.9687,frosta;frosta;frosta,frosta;frosta;frosta;frosta;frosta,1,1,1,1.0000
+7.png,frosta,frosta,0.7458,0.4916,frosta;frosta;frosta,frosta;frosta;frosta;pesoforma;frosta,1,1,1,1.0000
+8.png,frosta,frosta,0.9168,0.8336,frosta;rai sport;verisure,frosta;rai sport;verisure;frosta;rai sport,1,1,1,1.0000
+1.png,iperceramica,rai sport,0.8432,0.6863,rai sport;rai sport;rai sport,rai sport;rai sport;rai sport;rai sport;frosta,0,0,0,0.0000
+2.png,iperceramica,iperceramica,0.8812,0.7625,iperceramica;iperceramica;iperceramica,iperceramica;iperceramica;iperceramica;iperceramica;Italia Zuccheri,1,1,1,1.0000
+3.jpeg,iperceramica,iperceramica,0.8773,0.7546,iperceramica;iperceramica;iperceramica,iperceramica;iperceramica;iperceramica;verisure;iperceramica,1,1,1,1.0000
+4.jpeg,iperceramica,iperceramica,0.8812,0.7625,iperceramica;iperceramica;iperceramica,iperceramica;iperceramica;iperceramica;Italia Zuccheri;iperceramica,1,1,1,1.0000
+5.jpeg,iperceramica,iperceramica,0.8609,0.7218,iperceramica;iperceramica;iperceramica,iperceramica;iperceramica;iperceramica;iperceramica;verisure,1,1,1,1.0000
+6.png,iperceramica,iperceramica,0.8307,0.6614,iperceramica;iperceramica;iperceramica,iperceramica;iperceramica;iperceramica;Italia Zuccheri;iperceramica,1,1,1,1.0000
+1.png,moneyfarm,moneyfarm,0.9174,0.8349,moneyfarm;moneyfarm;moneyfarm,moneyfarm;moneyfarm;moneyfarm;rai sport;rai sport,1,1,1,1.0000
+2.png,moneyfarm,moneyfarm,0.9800,0.9599,moneyfarm;moneyfarm;moneyfarm,moneyfarm;moneyfarm;moneyfarm;moneyfarm;moneyfarm,1,1,1,1.0000
+3.png,moneyfarm,moneyfarm,0.8596,0.7191,moneyfarm;moneyfarm;moneyfarm,moneyfarm;moneyfarm;moneyfarm;moneyfarm;moneyfarm,1,1,1,1.0000
+4.png,moneyfarm,moneyfarm,0.9183,0.8366,moneyfarm;moneyfarm;rai sport,moneyfarm;moneyfarm;rai sport;nurofen;rai sport,1,1,1,1.0000
+5.png,moneyfarm,moneyfarm,0.9183,0.8366,moneyfarm;moneyfarm;rai sport,moneyfarm;moneyfarm;rai sport;rai sport;nurofen,1,1,1,1.0000
+6.png,moneyfarm,moneyfarm,0.9800,0.9599,moneyfarm;moneyfarm;moneyfarm,moneyfarm;moneyfarm;moneyfarm;moneyfarm;moneyfarm,1,1,1,1.0000
+7.png,moneyfarm,moneyfarm,0.8587,0.7175,moneyfarm;moneyfarm;moneyfarm,moneyfarm;moneyfarm;moneyfarm;moneyfarm;moneyfarm,1,1,1,1.0000
+8.jpeg,moneyfarm,moneyfarm,0.8820,0.7641,moneyfarm;moneyfarm;moneyfarm,moneyfarm;moneyfarm;moneyfarm;moneyfarm;moneyfarm,1,1,1,1.0000
+1.jpg,neo borocillina,rai sport,0.7815,0.5630,rai sport;rai sport;stosa,rai sport;rai sport;stosa;frosta;frosta,0,0,0,0.0000
+2.jpeg,neo borocillina,neo borocillina,0.9311,0.8623,neo borocillina;neo borocillina;neo borocillina,neo borocillina;neo borocillina;neo borocillina;neo borocillina;pesoforma,1,1,1,1.0000
+3.jpeg,neo borocillina,neo borocillina,0.9265,0.8531,neo borocillina;neo borocillina;neo borocillina,neo borocillina;neo borocillina;neo borocillina;neo borocillina;neo borocillina,1,1,1,1.0000
+4.jpeg,neo borocillina,neo borocillina,0.9311,0.8623,neo borocillina;neo borocillina;neo borocillina,neo borocillina;neo borocillina;neo borocillina;neo borocillina;pesoforma,1,1,1,1.0000
+5.jpeg,neo borocillina,neo borocillina,0.9262,0.8524,neo borocillina;neo borocillina;neo borocillina,neo borocillina;neo borocillina;neo borocillina;neo borocillina;neo borocillina,1,1,1,1.0000
+6.jpeg,neo borocillina,neo borocillina,0.9265,0.8531,neo borocillina;neo borocillina;neo borocillina,neo borocillina;neo borocillina;neo borocillina;neo borocillina;neo borocillina,1,1,1,1.0000
+1.png,nurofen,nurofen,0.8834,0.7668,nurofen;nurofen;nurofen,nurofen;nurofen;nurofen;nurofen;rai sport,1,1,1,1.0000
+2.jpg,nurofen,nurofen,0.8738,0.7476,nurofen;nurofen;nurofen,nurofen;nurofen;nurofen;nurofen;nurofen,1,1,1,1.0000
+3.png,nurofen,nurofen,0.8834,0.7668,nurofen;nurofen;nurofen,nurofen;nurofen;nurofen;nurofen;nurofen,1,1,1,1.0000
+4.png,nurofen,nurofen,0.8292,0.6584,nurofen;nurofen;nurofen,nurofen;nurofen;nurofen;nurofen;rai sport,1,1,1,1.0000
+5.png,nurofen,nurofen,0.8587,0.7175,nurofen;nurofen;nurofen,nurofen;nurofen;nurofen;nurofen;nurofen,1,1,1,1.0000
+6.jpeg,nurofen,nurofen,0.8658,0.7316,nurofen;nurofen;nurofen,nurofen;nurofen;nurofen;nurofen;nurofen,1,1,1,1.0000
+7.jpg,nurofen,nurofen,0.8658,0.7316,nurofen;nurofen;nurofen,nurofen;nurofen;nurofen;nurofen;nurofen,1,1,1,1.0000
+8.png,nurofen,nurofen,0.8825,0.7651,nurofen;moneyfarm;nurofen,nurofen;moneyfarm;nurofen;rai sport;rai sport,1,1,1,1.0000
+1.png,pesoforma,pesoforma,0.8675,0.7349,pesoforma;pesoforma;pesoforma,pesoforma;pesoforma;pesoforma;pesoforma;pesoforma,1,1,1,1.0000
+2.jpeg,pesoforma,pesoforma,0.9329,0.8659,pesoforma;pesoforma;pesoforma,pesoforma;pesoforma;pesoforma;pesoforma;pesoforma,1,1,1,1.0000
+3.jpeg,pesoforma,pesoforma,0.9329,0.8659,pesoforma;pesoforma;pesoforma,pesoforma;pesoforma;pesoforma;pesoforma;pesoforma,1,1,1,1.0000
+4.png,pesoforma,pesoforma,0.8546,0.7091,pesoforma;pesoforma;pesoforma,pesoforma;pesoforma;pesoforma;pesoforma;pesoforma,1,1,1,1.0000
+5.png,pesoforma,pesoforma,0.8879,0.7757,pesoforma;pesoforma;pesoforma,pesoforma;pesoforma;pesoforma;pesoforma;pesoforma,1,1,1,1.0000
+6.jpeg,pesoforma,pesoforma,0.8591,0.7182,pesoforma;pesoforma;pesoforma,pesoforma;pesoforma;pesoforma;pesoforma;pesoforma,1,1,1,1.0000
+7.jpg,pesoforma,pesoforma,0.8675,0.7349,pesoforma;pesoforma;pesoforma,pesoforma;pesoforma;pesoforma;pesoforma;pesoforma,1,1,1,1.0000
+8.jpg,pesoforma,pesoforma,0.8041,0.6083,pesoforma;pesoforma;pesoforma,pesoforma;pesoforma;pesoforma;pesoforma;pesoforma,1,1,1,1.0000
+9.jpg,pesoforma,pesoforma,0.7803,0.5606,pesoforma;pesoforma;pesoforma,pesoforma;pesoforma;pesoforma;pesoforma;pesoforma,1,1,1,1.0000
+1.png,rai sport,rai sport,0.9252,0.8504,rai sport;rai sport;frosta,rai sport;rai sport;frosta;rai sport;rai sport,1,1,1,1.0000
+10.png,rai sport,rai sport,0.8936,0.7871,rai sport;rai sport;rai sport,rai sport;rai sport;rai sport;rai sport;rai sport,1,1,1,1.0000
+11.png,rai sport,rai sport,0.9161,0.8322,rai sport;rai sport;rai sport,rai sport;rai sport;rai sport;rai sport;rai sport,1,1,1,1.0000
+12.png,rai sport,rai sport,0.9161,0.8322,rai sport;rai sport;rai sport,rai sport;rai sport;rai sport;rai sport;rai sport,1,1,1,1.0000
+13.png,rai sport,rai sport,0.8687,0.7374,rai sport;rai sport;rai sport,rai sport;rai sport;rai sport;rai sport;rai sport,1,1,1,1.0000
+14.jpeg,rai sport,rai sport,0.8673,0.7346,rai sport;rai sport;rai sport,rai sport;rai sport;rai sport;rai sport;rai sport,1,1,1,1.0000
+15.jpeg,rai sport,rai sport,0.9208,0.8415,rai sport;rai sport;rai sport,rai sport;rai sport;rai sport;rai sport;rai sport,1,1,1,1.0000
+16.jpeg,rai sport,rai sport,0.8693,0.7386,rai sport;rai sport;rai sport,rai sport;rai sport;rai sport;rai sport;rai sport,1,1,1,1.0000
+17.png,rai sport,rai sport,0.9059,0.8119,rai sport;rai sport;rai sport,rai sport;rai sport;rai sport;rai sport;rai sport,1,1,1,1.0000
+2.jpeg,rai sport,rai sport,0.8519,0.7038,rai sport;rai sport;rai sport,rai sport;rai sport;rai sport;rai sport;rai sport,1,1,1,1.0000
+3.png,rai sport,rai sport,0.8918,0.7836,rai sport;rai sport;rai sport,rai sport;rai sport;rai sport;rai sport;rai sport,1,1,1,1.0000
+4.png,rai sport,rai sport,0.9394,0.8789,rai sport;rai sport;rai sport,rai sport;rai sport;rai sport;rai sport;rai sport,1,1,1,1.0000
+5.png,rai sport,rai sport,0.9548,0.9095,rai sport;rai sport;rai sport,rai sport;rai sport;rai sport;rai sport;rai sport,1,1,1,1.0000
+6.png,rai sport,rai sport,0.9312,0.8624,rai sport;rai sport;rai sport,rai sport;rai sport;rai sport;rai sport;rai sport,1,1,1,1.0000
+7.png,rai sport,rai sport,0.9548,0.9095,rai sport;rai sport;rai sport,rai sport;rai sport;rai sport;rai sport;rai sport,1,1,1,1.0000
+8.png,rai sport,rai sport,0.9312,0.8624,rai sport;rai sport;rai sport,rai sport;rai sport;rai sport;rai sport;rai sport,1,1,1,1.0000
+9.png,rai sport,rai sport,0.9394,0.8789,rai sport;rai sport;rai sport,rai sport;rai sport;rai sport;rai sport;rai sport,1,1,1,1.0000
+1.jpeg,stosa,stosa,0.8875,0.7751,stosa;stosa;stosa,stosa;stosa;stosa;rai sport;frosta,1,1,1,1.0000
+2.png,stosa,stosa,0.8477,0.6954,stosa;stosa;stosa,stosa;stosa;stosa;rai sport;frosta,1,1,1,1.0000
+3.png,stosa,stosa,0.8875,0.7751,stosa;stosa;stosa,stosa;stosa;stosa;rai sport;rai sport,1,1,1,1.0000
+4.jpeg,stosa,stosa,0.7313,0.4627,stosa;stosa;stosa,stosa;stosa;stosa;stosa;frosta,1,1,1,1.0000
+5.jpeg,stosa,stosa,0.8313,0.6626,stosa;stosa;rai sport,stosa;stosa;rai sport;rai sport;stosa,1,1,1,1.0000
+1.jpeg,verisure,frosta,0.8627,0.7254,frosta;verisure;rai sport,frosta;verisure;rai sport;rai sport;nurofen,0,1,1,0.5000
+10.jpeg,verisure,verisure,0.9102,0.8204,verisure;verisure;verisure,verisure;verisure;verisure;verisure;verisure,1,1,1,1.0000
+2.jpeg,verisure,verisure,0.9054,0.8109,verisure;verisure;verisure,verisure;verisure;verisure;verisure;verisure,1,1,1,1.0000
+3.png,verisure,verisure,0.8659,0.7317,verisure;verisure;verisure,verisure;verisure;verisure;verisure;verisure,1,1,1,1.0000
+4.png,verisure,verisure,0.9102,0.8204,verisure;verisure;verisure,verisure;verisure;verisure;verisure;verisure,1,1,1,1.0000
+5.jpg,verisure,verisure,0.8778,0.7556,verisure;verisure;verisure,verisure;verisure;verisure;verisure;verisure,1,1,1,1.0000
+6.jpeg,verisure,verisure,0.8778,0.7556,verisure;verisure;verisure,verisure;verisure;verisure;verisure;verisure,1,1,1,1.0000
+7.png,verisure,verisure,0.8706,0.7413,verisure;verisure;verisure,verisure;verisure;verisure;verisure;verisure,1,1,1,1.0000
+8.jpeg,verisure,verisure,0.8697,0.7395,verisure;verisure;verisure,verisure;verisure;verisure;verisure;verisure,1,1,1,1.0000
+9.png,verisure,verisure,0.9054,0.8109,verisure;verisure;verisure,verisure;verisure;verisure;verisure;verisure,1,1,1,1.0000
