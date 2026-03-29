@@ -22,7 +22,7 @@ print(PROJECT_ROOT)
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from models.faiss_db import LogoDatabaseNew  # Assuming your class is in logo_database.py
+from models.faiss_db import LogoDatabaseNew, LogoDatabaseSigLIP2
 from utils.video_annotations_to_crops import process_video_annotations
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
@@ -57,8 +57,27 @@ def load_database():
         device=device
     )
 
-# Global FAISS DB instance
+# Global FAISS DB instance (CLIP — default, used by all tabs except where overridden)
 db = load_database()
+
+# SigLIP2 database — loaded lazily only when the user first selects it
+@st.cache_resource
+def load_database_siglip2():
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    return LogoDatabaseSigLIP2(
+        index_path=str(DB_BASE_PATH / "logo_index_siglip2.faiss"),
+        metadata_path=str(DB_BASE_PATH / "metadata_siglip2.json"),
+        batch_size=8,
+        device=device
+    )
+
+_EMBED_MODEL_OPTIONS = ["CLIP (default)", "SigLIP2"]
+
+def get_db(model_label: str):
+    """Return the correct DB instance for the selected embedding model."""
+    if model_label == "SigLIP2":
+        return load_database_siglip2()
+    return db  # CLIP
 
 # ------------------------------
 # Helpers
@@ -198,8 +217,15 @@ with tabs[0]:
     uploaded_file = st.file_uploader("Upload Logo Image", type=["png", "jpg", "jpeg"])
     brand_name = st.text_input("Enter Brand Name")
     logo_source = st.selectbox("Logo Source", ["Top 2k brands", "Internal database", "Audio"])
+    add_embed_model = st.selectbox(
+        "Embedding Model",
+        _EMBED_MODEL_OPTIONS,
+        key="add_embed_model",
+        help="Choose which embedding model's FAISS index to add this logo to. "
+             "CLIP and SigLIP2 use separate indexes — make sure you add and search with the same model."
+    )
     use_aug = st.checkbox("Use augmentations (5 variants)", value=False)
-    
+
     if uploaded_file:
         img = Image.open(uploaded_file).convert("RGB")
         st.image(img, caption="Uploaded Logo", width=200)
@@ -209,13 +235,14 @@ with tabs[0]:
             st.warning("Please upload an image and enter a valid brand name.")
         else:
             img = Image.open(uploaded_file).convert("RGB")
-            db.add_logos(images=[img], brand_names=[brand_name.strip()],
+            _add_db = get_db(add_embed_model)
+            _add_db.add_logos(images=[img], brand_names=[brand_name.strip()],
                         augmentations=AUGMENTATIONS if use_aug else None,
                         num_augments=5)
-            
+
             # Update metrics
             st.session_state.global_metrics["total_known"] += 1
-            
+
             # Update source-specific metrics
             source_key = ""
             if logo_source == "Top 2k brands":
@@ -224,11 +251,11 @@ with tabs[0]:
                 source_key = "internal_db"
             elif logo_source == "Audio":
                 source_key = "audio"
-                
+
             if source_key:
                 st.session_state.global_metrics[source_key]["processed"] += 1
-                
-            st.success(f"Successfully added logo for '{brand_name.strip()}' to the database.")
+
+            st.success(f"Successfully added logo for '{brand_name.strip()}' to the {add_embed_model} database.")
 
 # ------------------------------
 # TAB 2: Search Logo
@@ -237,8 +264,15 @@ with tabs[1]:
     st.subheader("Search for Similar Logos")
     query_file = st.file_uploader("Upload Query Image", type=["png", "jpg", "jpeg"], key="query")
     threshold = st.slider("Similarity Threshold", min_value=0.5, max_value=0.95, step=0.05, value=0.85)
+    search_embed_model = st.selectbox(
+        "Embedding Model",
+        _EMBED_MODEL_OPTIONS,
+        key="search_embed_model",
+        help="Choose which embedding model's FAISS index to search. "
+             "Must match the model used when the logos were added."
+    )
     use_tta = st.checkbox("Use test-time augmentations (5 variants)", value=False)
-    
+
     if query_file:
         query_img = Image.open(query_file).convert("RGB")
         st.image(query_img, caption="Query Logo", width=200)
@@ -248,14 +282,15 @@ with tabs[1]:
             st.warning("Please upload a query image to search.")
         else:
             query_img = Image.open(query_file).convert("RGB")
-            results = db.search_logo(query_img, threshold=threshold, k=5,
-                                     augmentations=AUGMENTATIONS if use_tta else None,
-                                     num_augments=5)
+            _search_db = get_db(search_embed_model)
+            results = _search_db.search_logo(query_img, threshold=threshold, k=5,
+                                             augmentations=AUGMENTATIONS if use_tta else None,
+                                             num_augments=5)
 
             if not results:
-                st.info("No matches found.")
+                st.info(f"No matches found in the {search_embed_model} index.")
             else:
-                st.success(f"Found {len(results)} matching logo(s):")
+                st.success(f"Found {len(results)} matching logo(s) [{search_embed_model}]:")
                 for match in results:
                     col1, col2 = st.columns([1, 3])
                     with col1:
@@ -268,9 +303,18 @@ with tabs[1]:
 # ------------------------------
 with tabs[2]:
     st.subheader("Save Database")
+    save_embed_model = st.selectbox(
+        "Embedding Model",
+        _EMBED_MODEL_OPTIONS,
+        key="save_embed_model",
+        help="Select which model's index to save to disk."
+    )
     if st.button("Save FAISS Index & Metadata"):
-        db.save()
-        st.success("Database saved successfully to disk (logo_index.faiss & metadata.json).")
+        _save_db = get_db(save_embed_model)
+        _save_db.save()
+        _index_file = "logo_index_siglip2.faiss" if save_embed_model == "SigLIP2" else "logo_index.faiss"
+        _meta_file  = "metadata_siglip2.json"    if save_embed_model == "SigLIP2" else "metadata.json"
+        st.success(f"[{save_embed_model}] Database saved to disk ({_index_file} & {_meta_file}).")
 
 # ------------------------------
 # TAB 4: Export Video Annotations to Database
