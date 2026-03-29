@@ -53,7 +53,7 @@ flagged/
 # ── Jupyter ──────────────────────────────────────────────────────────────────
 .ipynb_checkpoints/
 *.ipynb
-
+Notebooks/*
 # ── Logs & Temp ──────────────────────────────────────────────────────────────
 *.log
 *.tmp
@@ -76,8 +76,5 @@ Thumbs.db
 *.swp
 *.swo
 *~
-
-# ── Benchmark outputs ────────────────────────────────────────────────────────
-benchmarks/results/*.csv
-benchmarks/results/*.json
-benchmarks/results/plots/
+# ── Folders ─────────────────────────────────────────────────────────────────────
+/docs

@@ -1,0 +1,1 @@
+These notebooks are Google Colab based as computer was needed to test multiple models
