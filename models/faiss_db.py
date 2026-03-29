@@ -522,6 +522,88 @@ class LogoDatabaseNew:
 
 
 
+class LogoDatabaseSigLIP2(LogoDatabaseNew):
+    """
+    Drop-in variant of LogoDatabaseNew that uses SigLIP2 embeddings (1152-dim)
+    instead of CLIP (768-dim).
+
+    Requires a SEPARATE FAISS index file — the two models produce incompatible
+    embedding spaces.  All add/search/save logic is inherited from LogoDatabaseNew;
+    only the embedding model and FAISS initialisation are overridden.
+    """
+
+    EMBED_DIM = 1152
+    MODEL_ID = "google/siglip2-so400m-patch14-384"
+
+    def __init__(
+        self,
+        index_path: str = "logo_index_siglip2.faiss",
+        metadata_path: str = "metadata_siglip2.json",
+        device: str = _select_torch_device(),
+        batch_size: int = 8,
+    ):
+        # Intentionally bypass LogoDatabaseNew.__init__ so CLIP is never loaded.
+        self.index_path = index_path
+        self.metadata_path = metadata_path
+        self.device = device
+        self.batch_size = batch_size
+
+        self._siglip_proc = AutoImageProcessor.from_pretrained(self.MODEL_ID)
+        self._siglip_model = AutoModel.from_pretrained(self.MODEL_ID).to(self.device)
+        self._siglip_model.eval()
+
+        self.index = None
+        self.metadata = []
+        self._init_index()
+
+    # ------------------------------------------------------------------
+    # Override: initialise FAISS with the correct 1152-dim embedding space
+    # ------------------------------------------------------------------
+    def _init_index(self):
+        if os.path.exists(self.index_path):
+            self.index = faiss.read_index(self.index_path)
+            with open(self.metadata_path, "r") as f:
+                self.metadata = json.load(f)
+        else:
+            self.index = faiss.IndexFlatL2(self.EMBED_DIM)
+            self.metadata = []
+
+        if self.device == "cuda":
+            res = faiss.StandardGpuResources()
+            self.index = faiss.index_cpu_to_gpu(res, 0, self.index)
+
+    # ------------------------------------------------------------------
+    # Override: embed with SigLIP2 instead of CLIP
+    # ------------------------------------------------------------------
+    def _embed_batch(self, images: List[Image.Image]) -> np.ndarray:
+        try:
+            rgb = [img.convert("RGB") for img in images]
+            inputs = self._siglip_proc(images=rgb, return_tensors="pt").to(self.device)
+            with torch.no_grad():
+                vision_out = self._siglip_model.vision_model(
+                    pixel_values=inputs["pixel_values"]
+                )
+                if hasattr(vision_out, "pooler_output") and vision_out.pooler_output is not None:
+                    pooled = vision_out.pooler_output
+                else:
+                    pooled = vision_out.last_hidden_state[:, 0, :]
+
+                if (
+                    hasattr(self._siglip_model, "visual_projection")
+                    and self._siglip_model.visual_projection is not None
+                ):
+                    emb = self._siglip_model.visual_projection(pooled)
+                else:
+                    emb = pooled
+
+            arr = emb.cpu().numpy()
+            norms = np.linalg.norm(arr, axis=1, keepdims=True)
+            return arr / np.where(norms == 0, 1e-12, norms)
+        except Exception as e:
+            print(f"SigLIP2 embed error: {e}")
+            return np.array([])
+
+
 if __name__ == '__main__':
     index_path = "D:\\milestone 2\\faiss_db\\logo_index.faiss"
     metadata_path = "D:\\milestone 2\\faiss_db\\metadata.json"
