@@ -425,6 +425,9 @@ def review_unknown_logos_tab(db, AUGMENTATIONS=None):
     ss.setdefault("unknown_bulk_label_ui", "")
     ss.setdefault("unknown_use_aug", False)         # unchecked by default
 
+    # Family name buffer for unknown images
+    ss.setdefault("unknown_family_buffer", {})
+
     # Deferred state changes to avoid post-instantiation mutations of selection keys
     ss.setdefault("unknown_pending_unselect", set())  # filenames to unselect next run
     ss.setdefault("unknown_pending_key_pops", set())  # keys to pop next run (after deletes)
@@ -636,6 +639,28 @@ def review_unknown_logos_tab(db, AUGMENTATIONS=None):
 
     st.markdown("---")
 
+    # --- Family name summary ---
+    _unk_family_counts: dict = {}
+    for _fn, _fam in ss.unknown_family_buffer.items():
+        _fam = (_fam or "").strip()
+        if _fam:
+            _unk_family_counts[_fam] = _unk_family_counts.get(_fam, 0) + 1
+    st.markdown("#### 👨‍👩‍👧 Family Summary")
+    if _unk_family_counts:
+        _fam_df = (
+            pd.DataFrame(
+                list(_unk_family_counts.items()),
+                columns=["Family", "Image Count"]
+            )
+            .sort_values("Image Count", ascending=False)
+            .reset_index(drop=True)
+        )
+        st.dataframe(_fam_df, use_container_width=True, hide_index=True)
+    else:
+        st.caption("No family names assigned yet. Use the **Family** field under each image to assign one.")
+
+    st.markdown("---")
+
     # ------------------ Page grid ------------------
     GRID_COLS = 4
     cols = st.columns(GRID_COLS)
@@ -660,6 +685,17 @@ def review_unknown_logos_tab(db, AUGMENTATIONS=None):
             if lbl_key not in ss:
                 ss[lbl_key] = ""
             st.text_input(f"Label for {fn}", key=lbl_key)
+
+            # Per-item family name
+            fam_key = f"fam_{fn}"
+            if fam_key not in ss:
+                ss[fam_key] = ss.unknown_family_buffer.get(str(image_path), "")
+            new_fam = st.text_input(
+                f"Family for {fn}",
+                key=fam_key,
+                placeholder="e.g. RAI, Sky…"
+            ).strip()
+            ss.unknown_family_buffer[str(image_path)] = new_fam
 
             # Per-item actions
             c1, c2 = st.columns(2)
@@ -970,13 +1006,32 @@ def review_known_logos_tab(db, AUGMENTATIONS=None):
     st.markdown("---")
     st.subheader("🔄 Bulk Correction & Confirmation")
 
-    # ---------- Brand filter ----------
+    # ---------- Brand filter with Prev/Next navigation ----------
     unique_brands = sorted(df["brand"].unique())
-    selected_brand = st.selectbox(
-        "Select brand to filter",
-        ["All brands"] + unique_brands,
-        key="selected_brand_known"
-    )
+    all_brand_options = ["All brands"] + unique_brands
+
+    def _cur_brand_idx():
+        cur = ss.get("selected_brand_known", "All brands")
+        return all_brand_options.index(cur) if cur in all_brand_options else 0
+
+    cur_idx = _cur_brand_idx()
+
+    nav_col1, dropdown_col, nav_col2 = st.columns([1, 5, 1])
+    with nav_col1:
+        if st.button("◀ Prev", key="prev_brand_known", disabled=(cur_idx == 0)):
+            ss["selected_brand_known"] = all_brand_options[cur_idx - 1]
+            st.rerun()
+    with nav_col2:
+        if st.button("Next ▶", key="next_brand_known", disabled=(cur_idx >= len(all_brand_options) - 1)):
+            ss["selected_brand_known"] = all_brand_options[cur_idx + 1]
+            st.rerun()
+    with dropdown_col:
+        selected_brand = st.selectbox(
+            "Select brand to filter",
+            all_brand_options,
+            key="selected_brand_known"
+        )
+    st.caption(f"Brand {max(0, cur_idx)} of {len(unique_brands)}")
 
     # ---------- NEW: Postfilter verdict filter (if column exists) ----------
     if has_postfilter_col:
