@@ -206,8 +206,8 @@ A professional interface for inserting and searching logos using a FAISS-powered
 # ------------------------------
 # Tabs for Add / Search / Save
 # ------------------------------
-tabs = st.tabs(["➕ Add Logo", "🔎 Search Logo", "💾 Save Database", "📹 Video Object Cropping with Annotations", 
-                "Review Unknown Images", "Review Known Logos", "📊 Global Metrics"])
+tabs = st.tabs(["➕ Add Logo", "🔎 Search Logo", "💾 Save Database", "📹 Video Object Cropping with Annotations",
+                "Review Unknown Images", "Review Known Logos", "📊 Global Metrics", "🏷️ Brand Metrics"])
 
 # ------------------------------
 # TAB 1: Add Logo
@@ -910,7 +910,12 @@ def review_known_logos_tab(db, AUGMENTATIONS=None):
         "false_positives": 0
     })
     ss.setdefault("bulk_selection", {})
-    ss.setdefault("original_df", df.copy())
+    # Always refresh original_df when a CSV is present so brand data is never
+    # frozen from an earlier directory-only load (which has empty brand strings).
+    if csv_file is not None:
+        ss["original_df"] = df.copy()
+    else:
+        ss.setdefault("original_df", df.copy())
     ss.setdefault("corrections_map", {})  # filepath -> correction type
     ss.setdefault("known_family_buffer", {})   # filepath -> family name (4.1)
     ss.setdefault("small_logo_flags", {})      # filepath -> bool (4.2)
@@ -1529,6 +1534,107 @@ def global_metrics_tab():
         with ec2: st.metric("Wrong Attributions", _fmt_with_pct(sm.get("wrong_attributions", 0)))
         st.markdown("---")
 
+    # --- Per-Brand Metrics ---
+    st.markdown("---")
+    st.subheader("🏷️ Per-Brand Metrics")
+
+    original_df       = st.session_state.get("original_df")
+    corrections_map   = st.session_state.get("corrections_map", {})
+    known_brand_buffer = st.session_state.get("known_brand_buffer", {})
+    unknown_confirmations = st.session_state.get("unknown_confirmations", [])
+
+    # Build a unified brand → set-of-filepaths map from all three sources:
+    #   1. original_df  — original brand labels from CSV
+    #   2. known_brand_buffer — user-edited brand labels (only for fps with no original brand)
+    #   3. unknown_confirmations — brands confirmed from Unknowns tab
+    #
+    # known_brand_buffer must NOT add a fp that already has an original brand, otherwise
+    # a corrected image would appear under both its old brand AND new brand, inflating counts.
+    brand_to_paths: dict = {}
+    fps_with_original_brand: set = set()
+
+    if original_df is not None and not original_df.empty and "filepath" in original_df.columns:
+        for _, row in original_df.iterrows():
+            fp_str = str(row["filepath"])
+            brand = str(row.get("brand", "") or "").strip()
+            if brand:
+                brand_to_paths.setdefault(brand, set()).add(fp_str)
+                fps_with_original_brand.add(fp_str)
+
+    # known_brand_buffer adds brands only for fps that had no original brand (directory-only workflow)
+    for fp, brand in known_brand_buffer.items():
+        if fp in fps_with_original_brand:
+            continue
+        brand = (brand or "").strip()
+        if brand:
+            brand_to_paths.setdefault(brand, set()).add(fp)
+
+    # false-negative counts per brand (from Unknowns tab confirmations)
+    fn_by_brand: dict = {}
+    for c in unknown_confirmations:
+        brand = (c.get("brand") or "").strip()
+        if brand:
+            fn_by_brand[brand] = fn_by_brand.get(brand, 0) + 1
+            brand_to_paths.setdefault(brand, set())  # ensure brand appears in dropdown
+
+    all_brands_for_filter = sorted(brand_to_paths.keys() | fn_by_brand.keys())
+
+    if not all_brands_for_filter:
+        st.info(
+            "No brand data found yet. "
+            "Label logos in the **Review Known Logos** or **Review Unknown Images** tab to populate this section."
+        )
+    else:
+        selected_brand_metric = st.selectbox(
+            "Select brand to inspect",
+            all_brands_for_filter,
+            key="global_metrics_brand_filter"
+        )
+
+        if selected_brand_metric:
+            paths_for_brand = brand_to_paths.get(selected_brand_metric, set())
+            total = len(paths_for_brand)
+
+            confirmed = typo = wrong = false_positive = not_reviewed = 0
+            for fp in paths_for_brand:
+                corr = corrections_map.get(fp, "")
+                if corr == "confirm":
+                    confirmed += 1
+                elif corr == "typo":
+                    typo += 1
+                elif corr == "wrong":
+                    wrong += 1
+                elif corr == "false_positive":
+                    false_positive += 1
+                else:
+                    not_reviewed += 1
+
+            false_negatives = fn_by_brand.get(selected_brand_metric, 0)
+
+            b_denom = max(total, 1)
+            def _b_pct(n: int) -> str:
+                return f"{n} ({n / b_denom * 100:.0f}%)"
+
+            st.markdown(f"**Showing metrics for: `{selected_brand_metric}`**")
+            mc1, mc2, mc3 = st.columns(3)
+            with mc1:
+                st.metric("Total Known Images", total)
+                st.metric("Not Reviewed", not_reviewed)
+            with mc2:
+                st.metric("✅ Confirmed", _b_pct(confirmed))
+                st.metric("🔴 False Positives", _b_pct(false_positive))
+            with mc3:
+                st.metric("✏️ Typo Corrections", _b_pct(typo))
+                st.metric("❌ Wrong Attributions", _b_pct(wrong))
+
+            st.metric(
+                "🔍 False Negatives (found in Unknowns tab)",
+                false_negatives,
+                help="Count of images from the Unknowns tab that were confirmed as this brand."
+            )
+
+    st.markdown("---")
+
     if st.button("🔄 Reset All Metrics"):
         st.session_state.global_metrics = initialize_metrics()
         # reset the UI control, too
@@ -1542,3 +1648,134 @@ def global_metrics_tab():
 # ------------------------------
 with tabs[6]:
     global_metrics_tab()
+
+
+# ------------------------------
+# TAB 8: Brand Metrics
+# ------------------------------
+def brand_level_metrics_tab():
+    st.subheader("🏷️ Brand-Level Metrics Dashboard")
+    st.caption(
+        "Counts **unique brands** per metric — a brand with any image labeled as a typo counts as "
+        "1 typo brand, regardless of how many images it has."
+    )
+
+    ss = st.session_state
+    original_df       = ss.get("original_df")
+    corrections_map   = ss.get("corrections_map", {})
+    known_brand_buffer = ss.get("known_brand_buffer", {})
+    unknown_confirmations = ss.get("unknown_confirmations", [])
+
+    # Build unified brand → set-of-filepaths mapping (same sources as Per-Brand Metrics)
+    # known_brand_buffer must NOT add a fp that already has an original brand, otherwise
+    # a corrected image would appear under both its old brand AND new brand, inflating counts.
+    brand_to_paths: dict = {}
+    fps_with_original_brand: set = set()
+
+    if original_df is not None and not original_df.empty and "filepath" in original_df.columns:
+        for _, row in original_df.iterrows():
+            fp_str = str(row["filepath"])
+            brand = str(row.get("brand", "") or "").strip()
+            if brand:
+                brand_to_paths.setdefault(brand, set()).add(fp_str)
+                fps_with_original_brand.add(fp_str)
+
+    for fp, brand in known_brand_buffer.items():
+        if fp in fps_with_original_brand:
+            continue
+        brand = (brand or "").strip()
+        if brand:
+            brand_to_paths.setdefault(brand, set()).add(fp)
+
+    fn_by_brand: dict = {}
+    for c in unknown_confirmations:
+        brand = (c.get("brand") or "").strip()
+        if brand:
+            fn_by_brand[brand] = fn_by_brand.get(brand, 0) + 1
+            brand_to_paths.setdefault(brand, set())
+
+    if not brand_to_paths and not fn_by_brand:
+        st.info(
+            "No brand data found yet. "
+            "Label logos in the **Review Known Logos** or **Review Unknown Images** tab to populate this section."
+        )
+        return
+
+    # --- Classify each brand by which correction types it has at least one of ---
+    brands_with_fp        = set()
+    brands_with_typo      = set()
+    brands_with_wrong     = set()
+    brands_with_confirmed = set()
+    brands_not_reviewed   = set()
+
+    for brand, paths in brand_to_paths.items():
+        has_fp = has_typo = has_wrong = has_confirmed = False
+        all_unreviewed = True
+        for fp in paths:
+            corr = corrections_map.get(fp, "")
+            if corr == "false_positive": has_fp = True
+            elif corr == "typo":         has_typo = True
+            elif corr == "wrong":        has_wrong = True
+            elif corr == "confirm":      has_confirmed = True
+            if corr:                     all_unreviewed = False
+
+        if has_fp:        brands_with_fp.add(brand)
+        if has_typo:      brands_with_typo.add(brand)
+        if has_wrong:     brands_with_wrong.add(brand)
+        if has_confirmed: brands_with_confirmed.add(brand)
+        if all_unreviewed: brands_not_reviewed.add(brand)
+
+    brands_with_fn = set(fn_by_brand.keys())
+    total_brands   = len(brand_to_paths)
+    denom          = max(total_brands, 1)
+
+    def _fmt(n: int) -> str:
+        return f"{n} ({n / denom * 100:.0f}%)"
+
+    # --- Overview metric tiles ---
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Total Unique Brands", total_brands)
+        st.metric("Not Yet Reviewed", _fmt(len(brands_not_reviewed)))
+    with col2:
+        st.metric("🔴 Brands w/ False Positive",   _fmt(len(brands_with_fp)))
+        st.metric("🔍 Brands w/ False Negative",   _fmt(len(brands_with_fn)))
+    with col3:
+        st.metric("✏️ Brands w/ Typo Correction",  _fmt(len(brands_with_typo)))
+        st.metric("❌ Brands w/ Wrong Attribution", _fmt(len(brands_with_wrong)))
+    with col4:
+        st.metric("✅ Brands w/ Confirmed",         _fmt(len(brands_with_confirmed)))
+
+    st.markdown("---")
+
+    # --- Full brand breakdown table ---
+    st.subheader("📋 Brand Breakdown Table")
+    st.caption("Each row is one brand. Image counts per correction type are shown for reference.")
+
+    rows = []
+    for brand in sorted(set(brand_to_paths.keys()) | set(fn_by_brand.keys())):
+        paths = brand_to_paths.get(brand, set())
+        n_fp         = sum(1 for fp in paths if corrections_map.get(fp) == "false_positive")
+        n_typo       = sum(1 for fp in paths if corrections_map.get(fp) == "typo")
+        n_wrong      = sum(1 for fp in paths if corrections_map.get(fp) == "wrong")
+        n_confirmed  = sum(1 for fp in paths if corrections_map.get(fp) == "confirm")
+        n_unreviewed = sum(1 for fp in paths if not corrections_map.get(fp))
+        n_fn         = fn_by_brand.get(brand, 0)
+        rows.append({
+            "Brand":             brand,
+            "Total Images":      len(paths),
+            "✅ Confirmed":       n_confirmed,
+            "🔴 False Positives": n_fp,
+            "✏️ Typos":           n_typo,
+            "❌ Wrong Attribution": n_wrong,
+            "⬜ Not Reviewed":    n_unreviewed,
+            "🔍 False Negatives": n_fn,
+        })
+
+    if rows:
+        breakdown_df = pd.DataFrame(rows).reset_index(drop=True)
+        st.dataframe(breakdown_df, use_container_width=True, hide_index=True)
+
+
+with tabs[7]:
+    brand_level_metrics_tab()
