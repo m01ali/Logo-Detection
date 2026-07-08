@@ -5,7 +5,10 @@ from typing import List, Dict
 import torch
 from moviepy import AudioFileClip, VideoFileClip
 #import moviepy.editor as mp
-import torchaudio
+try:
+    import torchaudio
+except Exception:
+    torchaudio = None
 from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
 import pandas as pd
 import librosa
@@ -171,8 +174,15 @@ class WhisperModel:
         batch_size: int = 4,
     ):
         # 1) Determine compute device / dtype
-        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-        self.dtype = dtype or (torch.float16 if "cuda" in self.device else torch.float32)
+        if device:
+            self.device = device
+        elif torch.cuda.is_available():
+            self.device = "cuda"
+        elif getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+            self.device = "mps"
+        else:
+            self.device = "cpu"
+        self.dtype = dtype or (torch.float16 if self.device != "cpu" else torch.float32)
 
         # 2) Chunking parameters
         self.chunk_length_s = int(chunk_length_s)
