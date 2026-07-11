@@ -310,15 +310,17 @@ class DataExtractionPipeline:
         output_root: Path,
     ) -> dict[str, str | None]:
         """
-        Write only T-N and T+N frames (no detection, raw images only).
+        Write every temporal frame in the window T-N..T+N (no detection,
+        raw images only), so downstream consumers can request any offset
+        (e.g. the VLM prompt's default -2 -1 +1 +2 context frames).
 
-        Returns a dict keyed by offset string (e.g. "-5", "+5") whose values
+        Returns a dict keyed by offset string (e.g. "-5", "+1") whose values
         are relative paths from output_root, or None if the frame is out of range
         or unreadable.  Store this dict in each detection's metadata so the
         temporal frames can be loaded programmatically later.
         """
         window = self.config.temporal_window
-        offsets = [-window, +window]
+        offsets = [o for o in range(-window, window + 1) if o != 0]
         paths: dict[str, str | None] = {}
 
         for offset in offsets:
@@ -416,7 +418,7 @@ class DataExtractionPipeline:
             boxes, scores, labels = self._run_detection(pil_frame)
             logger.info("  %d detection(s)", len(boxes))
 
-            # ── Save T-5 and T+5 temporal frames only (no detection) ─────────
+            # ── Save temporal frames T-5..T+5 (no detection) ─────────────────
             # Done before crop loop so paths are available in metadata.
             temporal_paths = self._save_temporal_frames(
                 cap, frame_idx, frame_temporal_dir, total_frames, output_root

@@ -2,26 +2,51 @@
 """
 Multi-Signal Hints Generation Script.
 
-Precomputes two kinds of hints before VLM inference:
+Precomputes three kinds of hints before VLM inference:
 
   1. Audio hints  — Whisper transcription → Qwen-text brand extraction
                     → saved as  <extraction_dir>/audio_hints.json
                     (skipped automatically when the file already exists)
 
   2. FAISS hints  — top-k nearest brands from the CLIP FAISS index
-                    → saved as  <det_dir>/hints.json  for every detection
+                    → merged into  <det_dir>/hints.json  for every detection
 
-Optionally runs a Qwen VLM with all signals (crop + score, enlarged crop,
-full frame, temporal frames, audio brands, FAISS matches) to decide:
-  (i)  whether the crop is a logo / partial logo / not a logo
-  (ii) if it is a logo, what the brand name is
+  3. OCR hints    — EasyOCR text read from the cropped region
+                    → merged into  <det_dir>/hints.json  for every detection
+
+Optionally runs a Qwen VLM with all enabled signals (tight crop, enlarged
+crop, full frame, temporal frames, audio brands, FAISS matches, OCR text)
+to decide:
+  (i)   whether the crop is a logo / partial logo / not a logo
+  (ii)  if it is a logo, what the brand name is (open-set or closed-set)
+  (iii) whether the logo is truncated (cut off at the crop edge)
+
+After VLM inference a light text-LLM pass canonicalizes all assigned brand
+names — spelling variants of the same brand ("verysure", "verishore",
+"verisure") collapse to one canonical spelling stored as `brand_canonical`
+next to the original `brand`. Finally it draws every detection on its full
+frame with the VLM verdict and brand name. Both post-passes can also run
+standalone on cached predictions via --canonicalize / --annotate.
 
 Output files added to the existing extraction layout:
     <extraction_dir>/
-    ├── audio_hints.json                  ← video-level audio brands
-    └── detections/frame_*/det_*/
-        ├── hints.json                    ← audio brands + FAISS top-k
-        └── vlm_prediction.json           ← VLM answer (only with --run-vlm)
+    ├── audio_hints.json                        ← video-level audio brands
+    ├── detections/frame_*/det_*/
+    │   ├── hints.json                          ← audio + FAISS top-k + OCR
+    │   └── vlm_prediction[__<exp>].json        ← VLM answer (with --run-vlm)
+    ├── brand_canonicalization[__<exp>].json    ← brand variant → canonical map
+    ├── annotated_frames[__<exp>]/frame_*.jpg   ← bbox + brand drawn per frame
+    └── frame_annotations[__<exp>].json         ← machine-readable annotations
+
+Ablations:
+    Use --signals to choose which signals the VLM sees, --brand-mode to
+    switch open-set vs closed-set brand naming, and --experiment-name to
+    keep outputs of different runs side by side, e.g.:
+
+    python generate_hints.py ... --run-vlm \\
+        --signals tight_crop enlarged_crop faiss_matches \\
+        --brand-mode closed \\
+        --experiment-name no_audio_closed
 
 Usage:
     python generate_hints.py \\
@@ -33,7 +58,14 @@ Usage:
         [--faiss-threshold 0.0] \\
         [--audio-mode translate|transcribe] \\
         [--temporal-offsets -2 -1 +1 +2] \\
+        [--signals tight_crop enlarged_crop full_frame temporal_context audio_brands faiss_matches ocr_text] \\
+        [--brand-mode open|closed] \\
+        [--channel-watermark "Rai Sport"] \\
+        [--experiment-name my_ablation] \\
+        [--ocr-langs en it] \\
         [--run-vlm] \\
+        [--canonicalize] \\
+        [--annotate] \\
         [--vlm-model Qwen/Qwen2.5-VL-7B-Instruct]
 """
 
@@ -56,6 +88,70 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Canonical signal vocabulary
+# ---------------------------------------------------------------------------
+# The ONLY names the VLM is allowed to use in `signals_used`, the same names
+# used as prompt section headers, and the names outputs are normalized to.
+
+CANONICAL_SIGNALS = [
+    "tight_crop",
+    "enlarged_crop",
+    "full_frame",
+    "temporal_context",
+    "audio_brands",
+    "faiss_matches",
+    "ocr_text",
+]
+
+# Synonyms observed in VLM outputs → canonical name (used at parse time).
+SIGNAL_SYNONYMS = {
+    "tight_crop": "tight_crop", "crop": "tight_crop", "crop_visual": "tight_crop",
+    "crop_image": "tight_crop", "signal_1": "tight_crop", "signal1": "tight_crop",
+    "detected_region": "tight_crop",
+    "enlarged_crop": "enlarged_crop", "context_crop": "enlarged_crop",
+    "surrounding_context": "enlarged_crop", "signal_2": "enlarged_crop",
+    "signal2": "enlarged_crop", "zoomed_out_crop": "enlarged_crop",
+    "full_frame": "full_frame", "frame": "full_frame", "video_frame": "full_frame",
+    "scene": "full_frame", "signal_3": "full_frame", "signal3": "full_frame",
+    "full_video_frame": "full_frame",
+    "temporal_context": "temporal_context", "temporal": "temporal_context",
+    "temporal_frames": "temporal_context", "nearby_frames": "temporal_context",
+    "signal_4": "temporal_context", "signal4": "temporal_context",
+    "context_frames": "temporal_context",
+    "audio_brands": "audio_brands", "audio": "audio_brands",
+    "audio_track": "audio_brands", "audio_mentions": "audio_brands",
+    "transcript": "audio_brands", "signal_5": "audio_brands", "signal5": "audio_brands",
+    "faiss_matches": "faiss_matches", "faiss": "faiss_matches",
+    "database": "faiss_matches", "brand_database": "faiss_matches",
+    "visual_matches": "faiss_matches", "db_matches": "faiss_matches",
+    "signal_6": "faiss_matches", "signal6": "faiss_matches",
+    "ocr_text": "ocr_text", "ocr": "ocr_text", "detected_text": "ocr_text",
+    "text": "ocr_text", "crop_text": "ocr_text",
+    "signal_7": "ocr_text", "signal7": "ocr_text",
+}
+
+
+def normalize_signals_used(raw: Any) -> list[str]:
+    """Map a VLM `signals_used` list onto CANONICAL_SIGNALS (drop the rest)."""
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    for item in raw:
+        if not isinstance(item, str):
+            continue
+        key = re.sub(r"[^a-z0-9]+", "_", item.lower()).strip("_")
+        canon = SIGNAL_SYNONYMS.get(key)
+        if canon is None:  # substring fallback, e.g. "the faiss database matches"
+            for c in CANONICAL_SIGNALS:
+                if c in key or key in c:
+                    canon = c
+                    break
+        if canon and canon not in out:
+            out.append(canon)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -116,6 +212,22 @@ def compute_audio_hints(
 
 
 # ---------------------------------------------------------------------------
+# Per-detection hints.json helpers (merge-friendly: FAISS and OCR share it)
+# ---------------------------------------------------------------------------
+
+def load_hints(det_dir: Path, det: dict[str, Any]) -> dict[str, Any]:
+    hints_path = det_dir / "hints.json"
+    if hints_path.exists():
+        return json.loads(hints_path.read_text())
+    return {"det_id": det["det_id"]}
+
+
+def save_hints(det_dir: Path, hints: dict[str, Any]) -> None:
+    det_dir.mkdir(parents=True, exist_ok=True)
+    (det_dir / "hints.json").write_text(json.dumps(hints, indent=2, ensure_ascii=False))
+
+
+# ---------------------------------------------------------------------------
 # FAISS hint computation
 # ---------------------------------------------------------------------------
 
@@ -156,97 +268,281 @@ def faiss_top_k(
 
 
 # ---------------------------------------------------------------------------
+# OCR hint computation (EasyOCR)
+# ---------------------------------------------------------------------------
+
+def ocr_image(reader, image: Image.Image, min_side: int = 80, upscale: int = 3) -> list[dict]:
+    """Run EasyOCR on one image; upscale tiny crops first so text is legible."""
+    import numpy as np
+
+    img = image.convert("RGB")
+    if min(img.size) < min_side:
+        img = img.resize((img.width * upscale, img.height * upscale), Image.LANCZOS)
+    results = reader.readtext(np.array(img))
+    return [
+        {"text": text.strip(), "confidence": round(float(conf), 3)}
+        for _, text, conf in results
+        if text.strip()
+    ]
+
+
+def compute_ocr_hints(
+    detections: list[dict],
+    extraction_root: Path,
+    languages: list[str],
+) -> None:
+    """OCR every detection crop and merge the result into its hints.json."""
+    import easyocr
+
+    logger.info("Loading EasyOCR (%s) …", languages)
+    reader = easyocr.Reader(languages, gpu=torch.cuda.is_available())
+
+    logger.info("Computing OCR hints for %d detections …", len(detections))
+    for det in tqdm(detections, desc="OCR hints"):
+        det_dir = extraction_root / Path(det["crop_path"]).parent
+        hints = load_hints(det_dir, det)
+        if "ocr" in hints:
+            continue  # already computed
+
+        # OCR the tight crop first; fall back to the enlarged crop if no text
+        lines = ocr_image(reader, Image.open(extraction_root / det["crop_path"]))
+        source = "tight_crop"
+        if not lines:
+            lines = ocr_image(reader, Image.open(extraction_root / det["crop_enlarged_path"]))
+            source = "enlarged_crop" if lines else None
+
+        hints["ocr"] = {"source": source, "lines": lines}
+        save_hints(det_dir, hints)
+
+    logger.info("OCR hints written.")
+
+
+# ---------------------------------------------------------------------------
 # VLM prompt assembly
 # ---------------------------------------------------------------------------
 
+def collect_temporal_pairs(
+    detection: dict[str, Any],
+    extraction_root: Path,
+    offsets: list[str],
+) -> list[tuple[str, Image.Image]]:
+    """Load the requested temporal-context frames for one detection.
+
+    Falls back to the nearest temporal frames that DO exist when none of the
+    requested offsets were saved — older extractions stored only the widest
+    offsets (e.g. ±5), which used to leave the temporal_context signal
+    silently empty.
+    """
+    def _load(offset: str) -> Image.Image | None:
+        rel = detection["temporal_frames"].get(offset)
+        if rel and (extraction_root / rel).exists():
+            return Image.open(extraction_root / rel).convert("RGB")
+        return None
+
+    pairs = [(o, img) for o in offsets if (img := _load(o)) is not None]
+    if pairs:
+        return pairs
+
+    available = sorted(
+        (k for k, v in detection["temporal_frames"].items()
+         if v and (extraction_root / v).exists()),
+        key=lambda k: (abs(int(k)), int(k)),
+    )[: max(len(offsets), 1)]
+    return [(o, img) for o in sorted(available, key=int) if (img := _load(o)) is not None]
+
+
+def build_closed_set_candidates(
+    audio_brands: list[str],
+    faiss_hits: list[dict],
+    signals: set[str],
+) -> list[str]:
+    """Candidate brands for closed-set mode: audio brands + FAISS top-k of the
+    ENABLED signals (an ablated signal contributes no candidates)."""
+    candidates: list[str] = []
+    if "audio_brands" in signals:
+        candidates += audio_brands
+    if "faiss_matches" in signals:
+        candidates += [h["brand_name"] for h in faiss_hits]
+
+    seen: set[str] = set()
+    out: list[str] = []
+    for c in candidates:
+        key = c.lower().strip()
+        if key and key not in seen:
+            seen.add(key)
+            out.append(c)
+    return out
+
+
+def build_final_instruction(
+    candidates: list[str],
+    brand_mode: str,
+    channel_watermark: str,
+) -> str:
+    """The question + output schema shown to the VLM after all signals."""
+    watermark_note = ""
+    if channel_watermark:
+        watermark_note = (
+            f"Known context: the channel watermark in this video is \"{channel_watermark}\". "
+            f"If this region is that channel watermark, assign the brand \"{channel_watermark}\". "
+            "Attribute all remaining logos to advertisers or sponsors, not to the channel.\n\n"
+        )
+
+    if brand_mode == "closed":
+        if candidates:
+            cand_str = ", ".join(f'"{c}"' for c in candidates)
+            brand_rule = (
+                "(ii)  If it is a logo or partial logo, assign the brand name STRICTLY from "
+                f"this candidate list: [{cand_str}]. "
+                'If none of the candidates match what you actually see, output exactly "UNKNOWN". '
+                "Never output a brand that is not in the list.\n"
+            )
+        else:
+            brand_rule = (
+                "(ii)  No brand candidates are available for this detection. "
+                'If it is a logo or partial logo, output exactly "UNKNOWN" as the brand.\n'
+            )
+    else:
+        brand_rule = (
+            "(ii)  If it is a logo or partial logo, what is the brand name? "
+            "The audio / FAISS / OCR hints are soft evidence — they may be wrong or "
+            "incomplete, and you may name a brand that appears in no hint. "
+            'If you cannot identify the brand, output exactly "UNKNOWN".\n'
+        )
+
+    signal_vocab = ", ".join(f'"{s}"' for s in CANONICAL_SIGNALS)
+
+    return (
+        "\n---\n"
+        "You are an expert logo analyst. Base your answer ONLY on the signals shown above.\n\n"
+        + watermark_note +
+        "A LOGO is a distinctive graphic mark, emblem, wordmark or symbol that identifies "
+        "a brand, company, product, or sponsoring organisation.\n"
+        "Do NOT classify as a logo: plain scene text, captions or headlines, scoreboards "
+        "and score bugs, jersey or player numbers, clocks and timers, generic icons or UI "
+        "elements, national or regional flags, faces or people, unbranded products, and "
+        "random shapes, patterns or textures. These are \"not_logo\".\n\n"
+        "Answer:\n"
+        "(i)   Is the detected region a **logo**, a **partial logo**, or **not a logo**?\n"
+        + brand_rule +
+        "(iii) Is the logo **truncated** — visibly cut off at the edge of the crop or frame?\n"
+        "(iv)  What is the **probability** (0-100) that this region contains ANY logo at all?\n"
+        "(v)   How **confident** (0-100) are you in your answer (see field rules below)?\n\n"
+        "Respond ONLY with a JSON object — no extra text, no markdown fences:\n"
+        "{\n"
+        '  "is_logo": "logo" | "partial_logo" | "not_logo",\n'
+        '  "brand": "<brand name>" | "UNKNOWN" | null,\n'
+        '  "is_truncated": true | false,\n'
+        '  "logo_probability": <integer 0-100>,\n'
+        '  "confidence": <integer 0-100>,\n'
+        '  "signals_used": ["<signal>", ...],\n'
+        '  "reasoning": "<1-3 sentences explaining which signals drove the decision>"\n'
+        "}\n\n"
+        "Field rules:\n"
+        '- brand: null when not_logo; "UNKNOWN" when it is a logo but the brand cannot be determined.\n'
+        "- is_truncated: true only if the logo extends past the crop/frame edge and is "
+        "visibly cut off; false otherwise (and false when not_logo).\n"
+        "- logo_probability: your estimate that this region IS a logo of any brand, "
+        "independent of brand identity. 0 = definitely not a logo, 100 = definitely a logo.\n"
+        "- confidence: for \"logo\"/\"partial_logo\" — your certainty in the specific brand "
+        "name; for \"not_logo\" — your certainty that the region is truly not a logo.\n"
+        f"- signals_used: the signals that materially influenced your decision. Use ONLY "
+        f"these exact values: [{signal_vocab}]. Never invent other names.\n"
+    )
+
+
 def _build_vlm_content(
-    crop_img: Image.Image,
-    enlarged_img: Image.Image,
+    crop_img: Image.Image | None,
+    enlarged_img: Image.Image | None,
     frame_img: Image.Image | None,
     temporal_pairs: list[tuple[str, Image.Image]],
     detection: dict[str, Any],
     audio_brands: list[str],
     faiss_hits: list[dict[str, Any]],
+    ocr_data: dict[str, Any] | None,
+    signals: set[str],
+    brand_mode: str,
+    channel_watermark: str,
 ) -> list[dict]:
     """
     Assemble the multi-image content list for a single Qwen VLM call.
 
-    Layout (interleaved text + image tokens):
-      Signal 1 — tight crop
-      Signal 2 — enlarged crop
-      Signal 3 — full frame
-      Signal 4 — temporal context frames
-      Signal 5 — audio brand mentions (text only)
-      Signal 6 — FAISS top-k matches (text only)
-      Final question
+    Section headers use the CANONICAL_SIGNALS names so the model can echo
+    them back verbatim in `signals_used`. Disabled signals are omitted:
+      tight_crop, enlarged_crop, full_frame, temporal_context (images)
+      audio_brands, faiss_matches, ocr_text (text)
+      Final question (open-set or closed-set)
     """
     content: list[dict] = []
 
-    # Signal 1 — tight crop
-    content.append({
-        "type": "text",
-        "text": f"## Signal 1 — Tight crop  (detector confidence: {detection['score']:.3f})\n",
-    })
-    content.append({"type": "image", "image": crop_img})
-
-    # Signal 2 — enlarged crop
-    content.append({"type": "text", "text": "\n## Signal 2 — Enlarged crop with surrounding context\n"})
-    content.append({"type": "image", "image": enlarged_img})
-
-    # Signal 3 — full frame
-    if frame_img is not None:
+    # Signal — tight crop
+    if "tight_crop" in signals and crop_img is not None:
         content.append({
             "type": "text",
-            "text": f"\n## Signal 3 — Full video frame at t={detection['timecode_seconds']:.1f}s\n",
+            "text": f"## Signal: tight_crop — the detected region  (detector confidence: {detection['score']:.3f})\n",
+        })
+        content.append({"type": "image", "image": crop_img})
+
+    # Signal — enlarged crop
+    if "enlarged_crop" in signals and enlarged_img is not None:
+        content.append({"type": "text", "text": "\n## Signal: enlarged_crop — same region with surrounding context\n"})
+        content.append({"type": "image", "image": enlarged_img})
+
+    # Signal — full frame
+    if "full_frame" in signals and frame_img is not None:
+        content.append({
+            "type": "text",
+            "text": f"\n## Signal: full_frame — full video frame at t={detection['timecode_seconds']:.1f}s\n",
         })
         content.append({"type": "image", "image": frame_img})
 
-    # Signal 4 — temporal context
-    if temporal_pairs:
-        content.append({"type": "text", "text": "\n## Signal 4 — Temporal context (nearby frames)\n"})
+    # Signal — temporal context
+    if "temporal_context" in signals and temporal_pairs:
+        content.append({"type": "text", "text": "\n## Signal: temporal_context — nearby frames\n"})
         for offset, timg in temporal_pairs:
             content.append({"type": "text", "text": f"T{offset}: "})
             content.append({"type": "image", "image": timg})
 
-    # Signal 5 — audio brands (text only)
-    if audio_brands:
-        brands_str = ", ".join(f'"{b}"' for b in audio_brands)
-    else:
-        brands_str = "(none detected)"
-    content.append({
-        "type": "text",
-        "text": f"\n## Signal 5 — Brands mentioned in the audio track\n{brands_str}\n",
-    })
+    # Signal — audio brands (text only)
+    if "audio_brands" in signals:
+        brands_str = ", ".join(f'"{b}"' for b in audio_brands) if audio_brands else "(none detected)"
+        content.append({
+            "type": "text",
+            "text": f"\n## Signal: audio_brands — brands mentioned in the audio track\n{brands_str}\n",
+        })
 
-    # Signal 6 — FAISS visual matches (text only)
-    if faiss_hits:
-        faiss_lines = "\n".join(
-            f"  {i + 1}. {h['brand_name']}  (similarity: {h['similarity']:.3f})"
-            for i, h in enumerate(faiss_hits)
-        )
-    else:
-        faiss_lines = "  (no matches above threshold)"
-    content.append({
-        "type": "text",
-        "text": f"\n## Signal 6 — Top visual matches from the brand database (FAISS)\n{faiss_lines}\n",
-    })
+    # Signal — FAISS visual matches (text only)
+    if "faiss_matches" in signals:
+        if faiss_hits:
+            faiss_lines = "\n".join(
+                f"  {i + 1}. {h['brand_name']}  (similarity: {h['similarity']:.3f})"
+                for i, h in enumerate(faiss_hits)
+            )
+        else:
+            faiss_lines = "  (no matches above threshold)"
+        content.append({
+            "type": "text",
+            "text": f"\n## Signal: faiss_matches — top visual matches from the brand database\n{faiss_lines}\n",
+        })
 
-    # Final question
+    # Signal — OCR text (text only)
+    if "ocr_text" in signals:
+        lines = (ocr_data or {}).get("lines", [])
+        source = (ocr_data or {}).get("source") or "cropped region"
+        if lines:
+            ocr_lines = "\n".join(
+                f'  "{l["text"]}"  (OCR confidence: {l["confidence"]:.2f})' for l in lines
+            )
+            ocr_text = f"\n## Signal: ocr_text — text read by OCR from the {source.replace('_', ' ')}\n{ocr_lines}\n"
+        else:
+            ocr_text = "\n## Signal: ocr_text — text read by OCR from the cropped region\n  (no text detected)\n"
+        content.append({"type": "text", "text": ocr_text})
+
+    # Final question + schema
+    candidates = build_closed_set_candidates(audio_brands, faiss_hits, signals)
     content.append({
         "type": "text",
-        "text": (
-            "\n---\n"
-            "You are an expert logo analyst. Using ALL six signals above, answer:\n\n"
-            "(i)  Is the detected region a **logo**, a **partial logo**, or **not a logo**?\n"
-            "(ii) If it is a logo or partial logo, what is the **brand name**?\n\n"
-            "Respond ONLY with a JSON object in exactly this schema (no extra text):\n"
-            '{\n'
-            '  "is_logo": "logo" | "partial_logo" | "not_logo",\n'
-            '  "brand": "<brand name, or null if not_logo>",\n'
-            '  "confidence": "high" | "medium" | "low",\n'
-            '  "reasoning": "<one or two sentences explaining your decision>"\n'
-            '}'
-        ),
+        "text": build_final_instruction(candidates, brand_mode, channel_watermark),
     })
 
     return content
@@ -263,32 +559,35 @@ def run_vlm_on_detection(
     extraction_root: Path,
     audio_brands: list[str],
     faiss_hits: list[dict[str, Any]],
+    ocr_data: dict[str, Any] | None,
     temporal_offsets: list[str],
+    signals: set[str],
+    brand_mode: str,
+    channel_watermark: str,
 ) -> dict[str, Any]:
     """
     Run Qwen VLM on one detection and return raw text + parsed JSON.
     """
     from qwen_vl_utils import process_vision_info
 
-    # ── Load images ──────────────────────────────────────────────────────
-    crop_img = Image.open(extraction_root / detection["crop_path"]).convert("RGB")
-    enlarged_img = Image.open(extraction_root / detection["crop_enlarged_path"]).convert("RGB")
-
-    frame_path = (
-        extraction_root
-        / "detections"
-        / f"frame_{detection['frame_idx']:06d}"
-        / "frame.jpg"
-    )
-    frame_img = Image.open(frame_path).convert("RGB") if frame_path.exists() else None
+    # ── Load images (only for enabled signals) ────────────────────────────
+    crop_img = enlarged_img = frame_img = None
+    if "tight_crop" in signals:
+        crop_img = Image.open(extraction_root / detection["crop_path"]).convert("RGB")
+    if "enlarged_crop" in signals:
+        enlarged_img = Image.open(extraction_root / detection["crop_enlarged_path"]).convert("RGB")
+    if "full_frame" in signals:
+        frame_path = (
+            extraction_root
+            / "detections"
+            / f"frame_{detection['frame_idx']:06d}"
+            / "frame.jpg"
+        )
+        frame_img = Image.open(frame_path).convert("RGB") if frame_path.exists() else None
 
     temporal_pairs: list[tuple[str, Image.Image]] = []
-    for offset in temporal_offsets:
-        rel = detection["temporal_frames"].get(offset)
-        if rel:
-            abs_path = extraction_root / rel
-            if abs_path.exists():
-                temporal_pairs.append((offset, Image.open(abs_path).convert("RGB")))
+    if "temporal_context" in signals:
+        temporal_pairs = collect_temporal_pairs(detection, extraction_root, temporal_offsets)
 
     # ── Build prompt content ──────────────────────────────────────────────
     content = _build_vlm_content(
@@ -299,6 +598,10 @@ def run_vlm_on_detection(
         detection=detection,
         audio_brands=audio_brands,
         faiss_hits=faiss_hits,
+        ocr_data=ocr_data,
+        signals=signals,
+        brand_mode=brand_mode,
+        channel_watermark=channel_watermark,
     )
     messages = [{"role": "user", "content": content}]
 
@@ -333,7 +636,261 @@ def run_vlm_on_detection(
     except json.JSONDecodeError:
         pass
 
+    if parsed is not None and "signals_used" in parsed:
+        parsed["signals_used_raw"] = parsed.get("signals_used")
+        parsed["signals_used"] = normalize_signals_used(parsed.get("signals_used"))
+
     return {"raw": raw_text, "parsed": parsed}
+
+
+# ---------------------------------------------------------------------------
+# Brand canonicalization pass (light text-LLM, runs once per video)
+# ---------------------------------------------------------------------------
+# Spelling variants of the same brand assigned across frames ("verysure",
+# "verishore", "verisure") collapse to one canonical spelling chosen by the
+# model. Adds a "brand_canonical" field to every vlm_prediction file (the
+# original "brand" is left untouched) and saves the full mapping for review.
+
+CANONICALIZE_PROMPT = lambda brands: f"""
+The following brand-name strings were assigned to logo detections in one video by a vision model.
+Different strings may be spelling variants of the SAME real-world brand (OCR errors, transcription
+errors, casing or spacing differences) — e.g. "verysure", "verishore" and "verisure" all refer to "Verisure".
+
+Map EVERY input string to a canonical brand spelling:
+- Group strings that refer to the same real-world brand and give them ONE identical canonical spelling.
+- Prefer the brand's official spelling if you know it; otherwise pick the most plausible variant.
+- Do NOT merge genuinely different brands, even if their names look similar.
+- If a string is already spelled correctly, map it to itself.
+
+Input strings:
+{json.dumps(brands, ensure_ascii=False)}
+
+Respond ONLY with a JSON object mapping every input string (exactly as given) to its canonical form — no extra text:
+{{"<input string>": "<canonical brand>", ...}}
+"""
+
+CANONICALIZE_SYSTEM_PROMPT = (
+    "You are an expert in brand names. You normalize noisy brand-name strings "
+    "produced by vision and audio models into canonical spellings."
+)
+
+
+def parse_brand_mapping(raw: str, brands: list[str]) -> dict[str, str]:
+    """Parse the mapping JSON; any brand the model missed maps to itself."""
+    mapping: dict[str, str] = {}
+    try:
+        m = re.search(r"\{.*\}", raw, re.DOTALL)
+        if m:
+            data = json.loads(m.group())
+            if isinstance(data, dict):
+                mapping = {
+                    k: v.strip() for k, v in data.items()
+                    if isinstance(k, str) and isinstance(v, str) and v.strip()
+                }
+    except json.JSONDecodeError:
+        pass
+    return {b: mapping.get(b, b) for b in brands}
+
+
+def collect_assigned_brands(
+    detections: list[dict],
+    extraction_root: Path,
+    pred_filename: str,
+) -> list[str]:
+    """Unique brand strings the VLM assigned across all detections (frames)."""
+    brands: list[str] = []
+    for det in detections:
+        pred_path = extraction_root / Path(det["crop_path"]).parent / pred_filename
+        if not pred_path.exists():
+            continue
+        parsed = json.loads(pred_path.read_text()).get("parsed") or {}
+        b = parsed.get("brand")
+        if isinstance(b, str) and b.strip() and b != "UNKNOWN" and b not in brands:
+            brands.append(b)
+    return sorted(brands, key=str.lower)
+
+
+def canonicalize_brands(
+    detections: list[dict],
+    extraction_root: Path,
+    pred_filename: str,
+    exp_suffix: str,
+    experiment_config: dict[str, Any],
+) -> None:
+    """Run the canonicalization LLM pass and stamp brand_canonical into every
+    prediction file."""
+    assigned_brands = collect_assigned_brands(detections, extraction_root, pred_filename)
+    logger.info("Distinct brands assigned by the VLM: %d", len(assigned_brands))
+    if not assigned_brands:
+        logger.info("No brands assigned — skipping canonicalization pass.")
+        return
+
+    from models.description_model import Qwen2_5TextModel
+
+    logger.info("Loading text LLM for brand canonicalization …")
+    text_model = Qwen2_5TextModel()
+    raw_mapping = text_model.run_example(
+        CANONICALIZE_PROMPT(assigned_brands),
+        CANONICALIZE_SYSTEM_PROMPT,
+    )
+    del text_model
+    torch.cuda.empty_cache() if torch.cuda.is_available() else None
+
+    brand_map = parse_brand_mapping(raw_mapping, assigned_brands)
+    changed = {k: v for k, v in brand_map.items() if k != v}
+    logger.info("Canonicalization changed %d of %d brand spellings: %s",
+                len(changed), len(brand_map), changed)
+
+    map_path = extraction_root / f"brand_canonicalization{exp_suffix}.json"
+    map_path.write_text(json.dumps(
+        {"config": experiment_config, "input_brands": assigned_brands,
+         "mapping": brand_map, "raw_response": raw_mapping},
+        indent=2, ensure_ascii=False,
+    ))
+    logger.info("Mapping saved to %s", map_path)
+
+    for det in detections:
+        pred_path = extraction_root / Path(det["crop_path"]).parent / pred_filename
+        if not pred_path.exists():
+            continue
+        data = json.loads(pred_path.read_text())
+        parsed = data.get("parsed")
+        if not parsed:
+            continue
+        b = parsed.get("brand")
+        if b is None:
+            parsed["brand_canonical"] = None
+        elif b == "UNKNOWN":
+            parsed["brand_canonical"] = "UNKNOWN"
+        else:
+            parsed["brand_canonical"] = brand_map.get(b, b)
+        pred_path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+    logger.info("brand_canonical written into all prediction files.")
+
+
+# ---------------------------------------------------------------------------
+# Frame-level bounding-box annotation
+# ---------------------------------------------------------------------------
+
+LABEL_COLORS = {
+    "logo":         (0, 190, 0),
+    "partial_logo": (255, 160, 0),
+    "not_logo":     (220, 40, 40),
+    None:           (128, 128, 128),
+}
+
+
+def _load_font(size: int = 20):
+    from PIL import ImageFont
+    for name in ("DejaVuSans-Bold.ttf", "DejaVuSans.ttf", "Arial.ttf"):
+        try:
+            return ImageFont.truetype(name, size)
+        except OSError:
+            continue
+    return ImageFont.load_default()
+
+
+def annotate_frames(
+    detections: list[dict],
+    extraction_root: Path,
+    pred_filename: str,
+    exp_suffix: str,
+    experiment_config: dict[str, Any],
+) -> Path:
+    """
+    Draw every detection on its full frame with the VLM verdict:
+      green = logo, orange = partial_logo, red = not_logo, gray = unparsed.
+    Writes annotated JPEGs + a machine-readable frame_annotations.json.
+    """
+    from PIL import ImageDraw
+
+    ann_dir = extraction_root / f"annotated_frames{exp_suffix}"
+    ann_dir.mkdir(exist_ok=True)
+    font = _load_font(20)
+
+    by_frame: dict[int, list[dict]] = {}
+    for det in detections:
+        by_frame.setdefault(det["frame_idx"], []).append(det)
+
+    frames_out = []
+    for frame_idx, dets in tqdm(sorted(by_frame.items()), desc="Annotating frames"):
+        frame_path = extraction_root / "detections" / f"frame_{frame_idx:06d}" / "frame.jpg"
+        if not frame_path.exists():
+            continue
+        img = Image.open(frame_path).convert("RGB")
+        draw = ImageDraw.Draw(img)
+
+        det_entries = []
+        for det in dets:
+            det_dir = extraction_root / Path(det["crop_path"]).parent
+            pred_path = det_dir / pred_filename
+            p: dict = {}
+            if pred_path.exists():
+                p = json.loads(pred_path.read_text()).get("parsed") or {}
+
+            is_logo = p.get("is_logo")
+            brand = p.get("brand")
+            brand_canonical = p.get("brand_canonical", brand)
+            confidence = p.get("confidence")
+            color = LABEL_COLORS.get(is_logo, LABEL_COLORS[None])
+            box = [float(c) for c in det["box_xyxy"]]
+
+            if is_logo in ("logo", "partial_logo"):
+                label = f"{brand_canonical or brand or 'UNKNOWN'}"
+                if isinstance(confidence, (int, float)):
+                    label += f" {int(confidence)}"
+                if is_logo == "partial_logo":
+                    label += " (partial)"
+                if p.get("is_truncated") is True:
+                    label += " [cut off]"
+            elif is_logo == "not_logo":
+                label = "not a logo"
+            else:
+                label = "unparsed"
+
+            draw.rectangle(box, outline=color, width=3)
+            tb = draw.textbbox((0, 0), label, font=font)
+            tw, th = tb[2] - tb[0], tb[3] - tb[1]
+            x0 = max(0, min(box[0], img.width - tw - 10))
+            y0 = max(0, box[1] - th - 8)
+            draw.rectangle([x0, y0, x0 + tw + 8, y0 + th + 8], fill=color)
+            draw.text((x0 + 4, y0 + 3), label, fill=(255, 255, 255), font=font)
+
+            det_entries.append({
+                "det_id":           det["det_id"],
+                "box_xyxy":         det["box_xyxy"],
+                "detector_score":   round(det["score"], 4),
+                "is_logo":          is_logo,
+                "brand":            brand,
+                "brand_canonical":  brand_canonical,
+                "is_truncated":     p.get("is_truncated"),
+                "logo_probability": p.get("logo_probability"),
+                "confidence":       confidence,
+                "signals_used":     p.get("signals_used", []),
+            })
+
+        ann_path = ann_dir / f"frame_{frame_idx:06d}.jpg"
+        img.save(ann_path, quality=90)
+
+        frames_out.append({
+            "frame_idx":        frame_idx,
+            "timecode_seconds": dets[0]["timecode_seconds"],
+            "frame_path":       str(frame_path.relative_to(extraction_root)),
+            "annotated_path":   str(ann_path.relative_to(extraction_root)),
+            "detections":       det_entries,
+        })
+
+    ann_json = {
+        "config": experiment_config,
+        "num_frames": len(frames_out),
+        "num_detections": sum(len(f["detections"]) for f in frames_out),
+        "frames": frames_out,
+    }
+    ann_json_path = extraction_root / f"frame_annotations{exp_suffix}.json"
+    ann_json_path.write_text(json.dumps(ann_json, indent=2, ensure_ascii=False))
+    logger.info("Annotated %d frames → %s", len(frames_out), ann_dir)
+    logger.info("Frame annotation summary → %s", ann_json_path)
+    return ann_dir
 
 
 # ---------------------------------------------------------------------------
@@ -350,12 +907,38 @@ def run(
     audio_mode: str = "translate",
     skip_audio: bool = False,
     run_vlm: bool = False,
+    canonicalize: bool = False,
+    annotate: bool = False,
     vlm_model_id: str = "Qwen/Qwen2.5-VL-7B-Instruct",
     temporal_offsets: list[str] | None = None,
+    signals: list[str] | None = None,
+    brand_mode: str = "open",
+    channel_watermark: str = "",
+    experiment_name: str = "",
+    ocr_langs: list[str] | None = None,
 ) -> None:
 
     if temporal_offsets is None:
         temporal_offsets = ["-2", "-1", "+1", "+2"]
+    if ocr_langs is None:
+        ocr_langs = ["en", "it"]
+
+    enabled_signals: set[str] = set(signals if signals is not None else CANONICAL_SIGNALS)
+    unknown = enabled_signals - set(CANONICAL_SIGNALS)
+    if unknown:
+        raise ValueError(f"Unknown signals {sorted(unknown)}; valid options: {CANONICAL_SIGNALS}")
+
+    exp_suffix = f"__{experiment_name}" if experiment_name else ""
+    pred_filename = f"vlm_prediction{exp_suffix}.json"
+
+    experiment_config = {
+        "experiment":        experiment_name or "default",
+        "brand_assignment":  brand_mode,
+        "channel_watermark": channel_watermark,
+        "signals":           [s for s in CANONICAL_SIGNALS if s in enabled_signals],
+        "vlm_model":         vlm_model_id,
+    }
+    logger.info("Experiment config: %s", experiment_config)
 
     video_path_obj = Path(video_path)
     extraction_root = Path(extraction_dir)
@@ -385,81 +968,111 @@ def run(
         audio_hints = compute_audio_hints(video_path_obj, extraction_root, mode=audio_mode)
     audio_brands: list[str] = audio_hints.get("brands", [])
 
-    # ── Step 2: load FAISS ────────────────────────────────────────────────
-    db = load_faiss_db(faiss_index, faiss_metadata)
+    # ── Step 2+3: per-detection FAISS hints ───────────────────────────────
+    if "faiss_matches" in enabled_signals:
+        db = load_faiss_db(faiss_index, faiss_metadata)
 
-    # ── Step 3: per-detection FAISS hints ─────────────────────────────────
-    logger.info("Computing FAISS top-%d hints for %d detections …", top_k, len(detections))
-    for det in tqdm(detections, desc="FAISS hints"):
-        det_dir = extraction_root / Path(det["crop_path"]).parent
-        hints_path = det_dir / "hints.json"
+        logger.info("Computing FAISS top-%d hints for %d detections …", top_k, len(detections))
+        for det in tqdm(detections, desc="FAISS hints"):
+            det_dir = extraction_root / Path(det["crop_path"]).parent
+            hints = load_hints(det_dir, det)
+            if "faiss_top_k" in hints:
+                continue  # already computed
 
-        if hints_path.exists():
-            continue  # already computed
+            crop_abs = extraction_root / det["crop_path"]
+            hints["audio_brands"] = audio_brands
+            hints["faiss_top_k"] = faiss_top_k(db, crop_abs, top_k=top_k, threshold=faiss_threshold)
+            save_hints(det_dir, hints)
 
-        crop_abs = extraction_root / det["crop_path"]
-        faiss_hits = faiss_top_k(db, crop_abs, top_k=top_k, threshold=faiss_threshold)
+        logger.info("FAISS hints written.")
+        del db
+        torch.cuda.empty_cache() if torch.cuda.is_available() else None
+    else:
+        logger.info("faiss_matches signal disabled — skipping FAISS hint computation.")
 
-        hints_out: dict[str, Any] = {
-            "det_id": det["det_id"],
-            "audio_brands": audio_brands,
-            "faiss_top_k": faiss_hits,
-        }
-        hints_path.write_text(json.dumps(hints_out, indent=2, ensure_ascii=False))
-
-    logger.info("FAISS hints written.")
+    # ── Step 3b: per-detection OCR hints ──────────────────────────────────
+    if "ocr_text" in enabled_signals:
+        compute_ocr_hints(detections, extraction_root, ocr_langs)
+        torch.cuda.empty_cache() if torch.cuda.is_available() else None
+    else:
+        logger.info("ocr_text signal disabled — skipping OCR hint computation.")
 
     # ── Step 4: optional VLM inference ───────────────────────────────────
-    if not run_vlm:
-        logger.info(
-            "Hints precomputed. Pass --run-vlm to also run the VLM on each detection."
+    if run_vlm:
+        logger.info("Loading VLM: %s …", vlm_model_id)
+        from transformers import AutoProcessor, BitsAndBytesConfig, Qwen2_5_VLForConditionalGeneration
+
+        quant_cfg = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.float16)
+        vlm_model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+            vlm_model_id,
+            torch_dtype="auto",
+            device_map="auto",
+            quantization_config=quant_cfg,
+        ).eval()
+        processor = AutoProcessor.from_pretrained(
+            vlm_model_id, use_fast=True, padding_side="left", max_pixels=128 * 28 * 28
         )
-        return
+        logger.info("VLM ready.")
 
-    logger.info("Loading VLM: %s …", vlm_model_id)
-    from transformers import AutoProcessor, BitsAndBytesConfig, Qwen2_5_VLForConditionalGeneration
+        for det in tqdm(detections, desc="VLM inference"):
+            det_dir = extraction_root / Path(det["crop_path"]).parent
+            pred_path = det_dir / pred_filename
 
-    quant_cfg = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.float16)
-    vlm_model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-        vlm_model_id,
-        torch_dtype="auto",
-        device_map="auto",
-        quantization_config=quant_cfg,
-    ).eval()
-    processor = AutoProcessor.from_pretrained(
-        vlm_model_id, use_fast=True, padding_side="left", max_pixels=128 * 28 * 28
-    )
-    logger.info("VLM ready.")
+            if pred_path.exists():
+                continue  # already inferred
 
-    for det in tqdm(detections, desc="VLM inference"):
-        det_dir = extraction_root / Path(det["crop_path"]).parent
-        pred_path = det_dir / "vlm_prediction.json"
+            hints = load_hints(det_dir, det)
+            faiss_hits: list[dict] = hints.get("faiss_top_k", [])
+            ocr_data = hints.get("ocr")
 
-        if pred_path.exists():
-            continue  # already inferred
+            try:
+                result = run_vlm_on_detection(
+                    vlm_model=vlm_model,
+                    processor=processor,
+                    detection=det,
+                    extraction_root=extraction_root,
+                    audio_brands=audio_brands,
+                    faiss_hits=faiss_hits,
+                    ocr_data=ocr_data,
+                    temporal_offsets=temporal_offsets,
+                    signals=enabled_signals,
+                    brand_mode=brand_mode,
+                    channel_watermark=channel_watermark,
+                )
+            except Exception as exc:
+                logger.warning("VLM failed on det_id=%d: %s", det["det_id"], exc)
+                result = {"raw": None, "parsed": None, "error": str(exc)}
 
-        faiss_hits: list[dict] = []
-        hints_path = det_dir / "hints.json"
-        if hints_path.exists():
-            faiss_hits = json.loads(hints_path.read_text()).get("faiss_top_k", [])
+            result["config"] = experiment_config
+            pred_path.write_text(json.dumps(result, indent=2, ensure_ascii=False))
 
-        try:
-            result = run_vlm_on_detection(
-                vlm_model=vlm_model,
-                processor=processor,
-                detection=det,
-                extraction_root=extraction_root,
-                audio_brands=audio_brands,
-                faiss_hits=faiss_hits,
-                temporal_offsets=temporal_offsets,
-            )
-        except Exception as exc:
-            logger.warning("VLM failed on det_id=%d: %s", det["det_id"], exc)
-            result = {"raw": None, "parsed": None, "error": str(exc)}
+        logger.info("VLM inference complete. Results saved as %s per detection.", pred_filename)
 
-        pred_path.write_text(json.dumps(result, indent=2, ensure_ascii=False))
+        # Free the VLM before the canonicalization text model loads
+        del vlm_model, processor
+        torch.cuda.empty_cache() if torch.cuda.is_available() else None
+    else:
+        logger.info("Hints precomputed. Pass --run-vlm to also run the VLM on each detection.")
 
-    logger.info("VLM inference complete. Results saved as vlm_prediction.json per detection.")
+    # ── Step 5: brand canonicalization pass ──────────────────────────────
+    if run_vlm or canonicalize:
+        canonicalize_brands(
+            detections=detections,
+            extraction_root=extraction_root,
+            pred_filename=pred_filename,
+            exp_suffix=exp_suffix,
+            experiment_config=experiment_config,
+        )
+
+    # ── Step 6: frame-level bbox annotations ─────────────────────────────
+    if run_vlm or annotate:
+        annotate_frames(
+            detections=detections,
+            extraction_root=extraction_root,
+            pred_filename=pred_filename,
+            exp_suffix=exp_suffix,
+            experiment_config=experiment_config,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -469,7 +1082,7 @@ def run(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description=(
-            "Precompute multi-signal hints (Whisper audio + FAISS visual) "
+            "Precompute multi-signal hints (Whisper audio + FAISS visual + OCR) "
             "and optionally run the Qwen VLM on every detection."
         ),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -512,8 +1125,59 @@ if __name__ == "__main__":
         help="Signed frame offsets to include as temporal context (e.g. -2 -1 +1 +2).",
     )
     parser.add_argument(
+        "--signals", nargs="+", default=CANONICAL_SIGNALS, choices=CANONICAL_SIGNALS,
+        metavar="SIGNAL",
+        help=(
+            "Signals to include in the VLM prompt (ablations: omit the ones to "
+            f"disable). Options: {' '.join(CANONICAL_SIGNALS)}."
+        ),
+    )
+    parser.add_argument(
+        "--brand-mode", choices=["open", "closed"], default="open",
+        help=(
+            "'open' lets the VLM name any brand; 'closed' restricts it to the "
+            "audio + FAISS candidate brands or UNKNOWN."
+        ),
+    )
+    parser.add_argument(
+        "--channel-watermark", default="",
+        metavar="CHANNEL",
+        help=(
+            "Pre-declare the channel watermark (e.g. 'Rai Sport'): the prompt then "
+            "attributes remaining logos to advertisers, not the channel. Empty disables."
+        ),
+    )
+    parser.add_argument(
+        "--experiment-name", default="",
+        metavar="NAME",
+        help=(
+            "Suffix for VLM output files (vlm_prediction__NAME.json, "
+            "vlm_predictions__NAME.csv, annotated_frames__NAME/) so ablation runs "
+            "don't overwrite each other. Empty keeps the plain filenames."
+        ),
+    )
+    parser.add_argument(
+        "--ocr-langs", nargs="+", default=["en", "it"],
+        metavar="LANG",
+        help="EasyOCR language codes for the crop OCR signal.",
+    )
+    parser.add_argument(
         "--run-vlm", action="store_true",
-        help="After computing hints, run the VLM on each detection.",
+        help=(
+            "After computing hints, run the VLM on each detection "
+            "(also runs brand canonicalization and writes frame annotations)."
+        ),
+    )
+    parser.add_argument(
+        "--canonicalize", action="store_true",
+        help=(
+            "Run the brand canonicalization LLM pass on cached VLM predictions "
+            "(adds brand_canonical; runs automatically with --run-vlm)."
+        ),
+    )
+    parser.add_argument(
+        "--annotate", action="store_true",
+        help="Write annotated frames + frame_annotations.json from cached VLM predictions (no VLM run needed).",
     )
     parser.add_argument(
         "--vlm-model", default="Qwen/Qwen2.5-VL-7B-Instruct",
@@ -532,6 +1196,13 @@ if __name__ == "__main__":
         audio_mode=args.audio_mode,
         skip_audio=args.skip_audio,
         run_vlm=args.run_vlm,
+        canonicalize=args.canonicalize,
+        annotate=args.annotate,
         vlm_model_id=args.vlm_model,
         temporal_offsets=args.temporal_offsets,
+        signals=args.signals,
+        brand_mode=args.brand_mode,
+        channel_watermark=args.channel_watermark,
+        experiment_name=args.experiment_name,
+        ocr_langs=args.ocr_langs,
     )
