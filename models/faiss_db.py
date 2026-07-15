@@ -128,9 +128,12 @@ class LogoDatabase:
             self.index = faiss.IndexFlatL2(combined_dim)  # DINOv2-large dimension
             self.metadata = []
         
-        if self.device == 'cuda':
-            res = faiss.StandardGpuResources()
-            self.index = faiss.index_cpu_to_gpu(res, 0, self.index)
+        if self.device == 'cuda' and hasattr(faiss, 'StandardGpuResources'):
+            try:
+                res = faiss.StandardGpuResources()
+                self.index = faiss.index_cpu_to_gpu(res, 0, self.index)
+            except Exception as e:
+                print(f"GPU FAISS unavailable ({e}); using CPU FAISS index.")
 
     def _embed_batch(self, images: List[Image.Image]) -> np.ndarray:
         """
@@ -305,9 +308,12 @@ class LogoDatabaseNew:
             self.index = faiss.IndexFlatL2(combined_dim)  # DINOv2-large dimension
             self.metadata = []
         
-        if self.device == 'cuda':
-            res = faiss.StandardGpuResources()
-            self.index = faiss.index_cpu_to_gpu(res, 0, self.index)
+        if self.device == 'cuda' and hasattr(faiss, 'StandardGpuResources'):
+            try:
+                res = faiss.StandardGpuResources()
+                self.index = faiss.index_cpu_to_gpu(res, 0, self.index)
+            except Exception as e:
+                print(f"GPU FAISS unavailable ({e}); using CPU FAISS index.")
 
     def _embed_batch(self, images: List[Image.Image]) -> np.ndarray:
         """
@@ -568,9 +574,12 @@ class LogoDatabaseSigLIP2(LogoDatabaseNew):
             self.index = faiss.IndexFlatL2(self.EMBED_DIM)
             self.metadata = []
 
-        if self.device == "cuda":
-            res = faiss.StandardGpuResources()
-            self.index = faiss.index_cpu_to_gpu(res, 0, self.index)
+        if self.device == "cuda" and hasattr(faiss, 'StandardGpuResources'):
+            try:
+                res = faiss.StandardGpuResources()
+                self.index = faiss.index_cpu_to_gpu(res, 0, self.index)
+            except Exception as e:
+                print(f"GPU FAISS unavailable ({e}); using CPU FAISS index.")
 
     # ------------------------------------------------------------------
     # Override: embed with SigLIP2 instead of CLIP

@@ -3,8 +3,12 @@ import json
 import argparse
 from typing import List, Dict
 import torch
-from moviepy import AudioFileClip, VideoFileClip
-#import moviepy.editor as mp
+try:
+    # moviepy 2.x exposes these at the top level
+    from moviepy import AudioFileClip, VideoFileClip
+except ImportError:
+    # moviepy 1.x keeps them under moviepy.editor
+    from moviepy.editor import AudioFileClip, VideoFileClip
 try:
     import torchaudio
 except Exception:
