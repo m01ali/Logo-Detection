@@ -1,0 +1,21 @@
+{
+  "source": "audio_transcript",
+  "model": "Qwen/Qwen3-8B",
+  "count": 14,
+  "brands": [
+    "amara.org",
+    "barbie",
+    "frost",
+    "guinness",
+    "iceboard",
+    "italian series a volleyball championship",
+    "men'sino ball",
+    "merluzzo",
+    "monifarma",
+    "neo borosilina",
+    "orogel",
+    "rai 2",
+    "rai sport",
+    "very sure"
+  ]
+}

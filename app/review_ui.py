@@ -52,11 +52,36 @@ def save_csv(df: pd.DataFrame, path: str) -> None:
     df.to_csv(path, index=False)
 
 
-def _safe_img(path: str | None) -> Image.Image | None:
-    if not path or not Path(path).exists():
+def _resolve_path(path: str | None, base_dir: Path | None) -> Path | None:
+    """
+    Resolve an image path stored in the CSV. Newly-produced CSVs store paths
+    relative to the CSV's own directory; older CSVs may contain absolute paths
+    or paths relative to the cwd. Try, in order:
+      1) absolute (or already-existing) path as-is,
+      2) joined to base_dir (CSV's directory),
+      3) joined to cwd.
+    Returns the first variant that exists, or None.
+    """
+    if not path:
+        return None
+    p = Path(path)
+    if p.is_absolute() and p.exists():
+        return p
+    if p.exists():
+        return p
+    if base_dir is not None:
+        candidate = (base_dir / p)
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _safe_img(path: str | None, base_dir: Path | None = None) -> Image.Image | None:
+    resolved = _resolve_path(path, base_dir)
+    if resolved is None:
         return None
     try:
-        return Image.open(path).convert("RGB")
+        return Image.open(resolved).convert("RGB")
     except Exception:
         return None
 
@@ -100,6 +125,10 @@ csv_path = st.sidebar.text_input(
 if not csv_path or not Path(csv_path).exists():
     st.info("Enter a valid path to `vlm_predictions.csv` in the sidebar to begin.")
     st.stop()
+
+# Directory containing the CSV — relative image paths in the CSV are resolved
+# against this so the app can be launched from anywhere (not only the repo root).
+CSV_DIR: Path = Path(csv_path).resolve().parent
 
 # ── Path prefix remapping (for Kaggle-exported CSVs) ─────────────────────────
 st.sidebar.markdown("---")
@@ -348,9 +377,9 @@ st.markdown(f"### Detection `det_id={det_id}`  —  t={timecode}s  —  det_scor
 # ── Image columns ─────────────────────────────────────────────────────────────
 img_col1, img_col2, img_col3 = st.columns(3)
 
-crop_img     = _safe_img(row.get("crop_path"))
-enlarged_img = _safe_img(row.get("enlarged_crop_path"))
-frame_img    = _safe_img(row.get("frame_path"))
+crop_img     = _safe_img(row.get("crop_path"),          CSV_DIR)
+enlarged_img = _safe_img(row.get("enlarged_crop_path"), CSV_DIR)
+frame_img    = _safe_img(row.get("frame_path"),         CSV_DIR)
 
 with img_col1:
     st.caption("Tight crop")
@@ -464,7 +493,7 @@ with st.expander("All detections in this frame", expanded=False):
     same_frame = df[df["frame_idx"] == row.get("frame_idx", -1)]
     thumb_cols = st.columns(min(len(same_frame), 8))
     for col, (_, srow) in zip(thumb_cols, same_frame.iterrows()):
-        thumb = _safe_img(srow.get("crop_path"))
+        thumb = _safe_img(srow.get("crop_path"), CSV_DIR)
         lbl   = srow.get("label") or "?"
         brand_s = srow.get("brand") or "?"
         with col:
