@@ -36,7 +36,8 @@ Output files added to the existing extraction layout:
     │   └── vlm_prediction[__<exp>].json        ← VLM answer (with --run-vlm)
     ├── brand_canonicalization[__<exp>].json    ← brand variant → canonical map
     ├── annotated_frames[__<exp>]/frame_*.jpg   ← bbox + brand drawn per frame
-    └── frame_annotations[__<exp>].json         ← machine-readable annotations
+    ├── frame_annotations[__<exp>].json         ← machine-readable annotations
+    └── vlm_predictions[__<exp>].csv            ← flat results table (review UI)
 
 Ablations:
     Use --signals to choose which signals the VLM sees, --brand-mode to
@@ -66,6 +67,7 @@ Usage:
         [--run-vlm] \\
         [--canonicalize] \\
         [--annotate] \\
+        [--export-csv] \\
         [--vlm-model Qwen/Qwen2.5-VL-7B-Instruct]
 """
 
@@ -894,6 +896,100 @@ def annotate_frames(
 
 
 # ---------------------------------------------------------------------------
+# CSV export (same schema as the Kaggle notebook's results cell)
+# ---------------------------------------------------------------------------
+
+def export_predictions_csv(
+    detections: list[dict],
+    extraction_root: Path,
+    pred_filename: str,
+    exp_suffix: str,
+    audio_brands: list[str],
+    experiment_config: dict[str, Any],
+) -> Path:
+    """Flatten all per-detection predictions + hints into one CSV for the
+    review UI (app/review_ui.py). Only adds columns the UI already tolerates."""
+    import pandas as pd
+
+    root = extraction_root.resolve()
+
+    def _clamp(val) -> int | None:
+        try:
+            return max(0, min(100, int(float(val))))
+        except (TypeError, ValueError):
+            return None
+
+    results = []
+    for det in detections:
+        det_dir = root / Path(det["crop_path"]).parent
+        pred_path = det_dir / pred_filename
+        hints_path = det_dir / "hints.json"
+
+        hints: dict = json.loads(hints_path.read_text()) if hints_path.exists() else {}
+        faiss_hits: list[dict] = hints.get("faiss_top_k", [])
+        ocr_lines: list[dict] = (hints.get("ocr") or {}).get("lines", [])
+
+        faiss_brands = [h["brand_name"] for h in faiss_hits]
+        faiss_scores = [h["similarity"] for h in faiss_hits]
+
+        p: dict = {}
+        if pred_path.exists():
+            p = json.loads(pred_path.read_text()).get("parsed") or {}
+
+        results.append({
+            # ── detection metadata ──────────────────────────────────────
+            "det_id":           det["det_id"],
+            "frame_idx":        det["frame_idx"],
+            "timecode_s":       det["timecode_seconds"],
+            "det_score":        round(det["score"], 4),
+            "box_xyxy":         det["box_xyxy"],
+            # ── file paths for the review UI ────────────────────────────
+            "crop_path":        str(root / det["crop_path"]),
+            "enlarged_crop_path": str(root / det["crop_enlarged_path"]),
+            "frame_path":       str(root / "detections" / f"frame_{det['frame_idx']:06d}" / "frame.jpg"),
+            "annotated_frame_path": str(root / f"annotated_frames{exp_suffix}" / f"frame_{det['frame_idx']:06d}.jpg"),
+            # ── VLM outputs ─────────────────────────────────────────────
+            "is_logo":          p.get("is_logo"),
+            "brand":            p.get("brand"),
+            "brand_canonical":  p.get("brand_canonical", p.get("brand")),
+            "is_truncated":     p.get("is_truncated"),
+            "logo_probability": _clamp(p.get("logo_probability")),
+            "confidence":       _clamp(p.get("confidence")),
+            "signals_used":     json.dumps(normalize_signals_used(p.get("signals_used", []))),
+            "signals_used_raw": json.dumps(p.get("signals_used_raw", p.get("signals_used", []))),
+            "reasoning":        p.get("reasoning"),
+            # ── FAISS context ───────────────────────────────────────────
+            "faiss_top1":       faiss_brands[0] if faiss_brands else None,
+            "faiss_top1_score": faiss_scores[0] if faiss_scores else None,
+            "faiss_top5_brands": json.dumps(faiss_brands),
+            "faiss_top5_scores": json.dumps(faiss_scores),
+            # ── audio context ───────────────────────────────────────────
+            "audio_brands":     json.dumps(audio_brands),
+            # ── OCR context ─────────────────────────────────────────────
+            "ocr_text":         " | ".join(l["text"] for l in ocr_lines),
+            "ocr_source":       (hints.get("ocr") or {}).get("source"),
+            # ── experiment metadata ─────────────────────────────────────
+            "experiment":       experiment_config.get("experiment"),
+            "brand_mode":       experiment_config.get("brand_assignment"),
+            "enabled_signals":  json.dumps(experiment_config.get("signals", [])),
+            # ── review label (filled in by the UI) ──────────────────────
+            "label":            None,   # "TP" | "FP" | "FN" | "wrong_brand"
+        })
+
+    df = pd.DataFrame(results)
+    csv_path = extraction_root / f"vlm_predictions{exp_suffix}.csv"
+    df.to_csv(csv_path, index=False)
+
+    logger.info(
+        "CSV: %d rows → %s  (logo: %d | partial: %d | not_logo: %d | unparsed: %d)",
+        len(df), csv_path,
+        (df.is_logo == "logo").sum(), (df.is_logo == "partial_logo").sum(),
+        (df.is_logo == "not_logo").sum(), df.is_logo.isna().sum(),
+    )
+    return csv_path
+
+
+# ---------------------------------------------------------------------------
 # Main pipeline
 # ---------------------------------------------------------------------------
 
@@ -909,6 +1005,7 @@ def run(
     run_vlm: bool = False,
     canonicalize: bool = False,
     annotate: bool = False,
+    export_csv: bool = False,
     vlm_model_id: str = "Qwen/Qwen2.5-VL-7B-Instruct",
     temporal_offsets: list[str] | None = None,
     signals: list[str] | None = None,
@@ -1074,6 +1171,17 @@ def run(
             experiment_config=experiment_config,
         )
 
+    # ── Step 7: flat CSV for the review UI ───────────────────────────────
+    if run_vlm or export_csv:
+        export_predictions_csv(
+            detections=detections,
+            extraction_root=extraction_root,
+            pred_filename=pred_filename,
+            exp_suffix=exp_suffix,
+            audio_brands=audio_brands,
+            experiment_config=experiment_config,
+        )
+
 
 # ---------------------------------------------------------------------------
 # CLI
@@ -1180,6 +1288,13 @@ if __name__ == "__main__":
         help="Write annotated frames + frame_annotations.json from cached VLM predictions (no VLM run needed).",
     )
     parser.add_argument(
+        "--export-csv", action="store_true",
+        help=(
+            "Write vlm_predictions[__<exp>].csv for the review UI from cached "
+            "predictions (runs automatically with --run-vlm)."
+        ),
+    )
+    parser.add_argument(
         "--vlm-model", default="Qwen/Qwen2.5-VL-7B-Instruct",
         help="HuggingFace model ID for the VLM.",
     )
@@ -1198,6 +1313,7 @@ if __name__ == "__main__":
         run_vlm=args.run_vlm,
         canonicalize=args.canonicalize,
         annotate=args.annotate,
+        export_csv=args.export_csv,
         vlm_model_id=args.vlm_model,
         temporal_offsets=args.temporal_offsets,
         signals=args.signals,
