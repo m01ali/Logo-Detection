@@ -357,10 +357,22 @@ def build_closed_set_candidates(
     audio_brands: list[str],
     faiss_hits: list[dict],
     signals: set[str],
+    channel_watermark: str = "",
 ) -> list[str]:
-    """Candidate brands for closed-set mode: audio brands + FAISS top-k of the
-    ENABLED signals (an ablated signal contributes no candidates)."""
+    """Candidate brands for closed-set mode: the channel watermark (if
+    declared) + audio brands + FAISS top-k of the ENABLED signals (an
+    ablated signal contributes no candidates).
+
+    The watermark is always added when declared, regardless of which
+    signals are enabled/ablated, since it comes from --channel-watermark,
+    not from a hint signal — otherwise the prompt's watermark note ("assign
+    the brand X if this is the watermark") contradicts the closed-set rule
+    ("assign STRICTLY from this list"), and the model can never legally
+    name the watermark brand.
+    """
     candidates: list[str] = []
+    if channel_watermark:
+        candidates.append(channel_watermark)
     if "audio_brands" in signals:
         candidates += audio_brands
     if "faiss_matches" in signals:
@@ -541,7 +553,7 @@ def _build_vlm_content(
         content.append({"type": "text", "text": ocr_text})
 
     # Final question + schema
-    candidates = build_closed_set_candidates(audio_brands, faiss_hits, signals)
+    candidates = build_closed_set_candidates(audio_brands, faiss_hits, signals, channel_watermark)
     content.append({
         "type": "text",
         "text": build_final_instruction(candidates, brand_mode, channel_watermark),
