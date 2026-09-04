@@ -465,9 +465,20 @@ else:
 # ── Cell 6 ── Multi-signal VLM inference (Qwen3-VL) ──────────────────────────
 # %%
 def build_closed_set_candidates(audio_brands: list[str], faiss_hits: list[dict]) -> list[str]:
-    """Candidate brands for closed-set mode: audio brands + FAISS top-k of the
-    ENABLED signals (an ablated signal contributes no candidates)."""
+    """Candidate brands for closed-set mode: the channel watermark (if
+    declared) + audio brands + FAISS top-k of the ENABLED signals (an
+    ablated signal contributes no candidates).
+
+    The watermark is always added when declared, regardless of which
+    signals are enabled/ablated, since it comes from CHANNEL_WATERMARK, not
+    from a hint signal — otherwise the prompt's watermark note ("assign the
+    brand X if this is the watermark") contradicts the closed-set rule
+    ("assign STRICTLY from this list"), and the model can never legally
+    name the watermark brand.
+    """
     candidates: list[str] = []
+    if CHANNEL_WATERMARK:
+        candidates.append(CHANNEL_WATERMARK)
     if signal_enabled("audio_brands"):
         candidates += audio_brands
     if signal_enabled("faiss_matches"):
