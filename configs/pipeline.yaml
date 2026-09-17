@@ -1,0 +1,330 @@
+# The single YAML (T8, spec docs/04). Every numeric threshold used by the
+# pipeline lives here; no stage may hard-code one. Per-video facts (path,
+# channel, watermark regions) live in configs/videos/<video_id>.yaml and are
+# merged in under `overrides` at load time (logo_pipeline/config.py).
+#
+# Generated from logo_pipeline/config.py's dataclass defaults so the file
+# and the loader's schema cannot drift; hand-edit values freely (that is the
+# point of this file), but adding/removing a KEY means editing config.py's
+# schema too, since unknown keys fail validation.
+#
+# Values marked "placeholder" in spec docs/04 (merge.min_merge_area,
+# faiss.rule*_threshold, etc.) are expected to change after the first full
+# run (Revision 3 §3); see spec docs/19 for the open questions attached to
+# specific keys.
+
+version: 1
+run:
+  output_root: runs
+  run_id: null
+  log_every_n: 10
+  device: auto
+  seed: 42
+  stages:
+  - ingest
+  - shots
+  - sampling
+  - detect_gdino
+  - detect_yolo
+  - merge
+  - refine
+  - ocr
+  - faiss_query
+  - audio
+  - vlm
+  - canonicalise
+  - watermark
+  - router_input
+  - router
+  - output
+ingest:
+  mode: video
+  frames:
+    dir: null
+    pattern: '{video_id}_frame_*.png'
+    assumed_fps: 1.0
+  save_frame_jpeg_quality: 95
+shots:
+  enabled: true
+  detector: adaptive
+  adaptive_threshold: 3.0
+  content_threshold: 27.0
+  min_scene_len_frames: 15
+sampling:
+  mode: interval
+  interval_s: 2.0
+  per_shot:
+    position: middle
+  segment:
+    duration_s: 4.0
+  temporal_window: 5
+  temporal_offsets_for_vlm:
+  - -2
+  - -1
+  - 1
+  - 2
+detectors:
+  gdino:
+    enabled: true
+    model_id: IDEA-Research/grounding-dino-base
+    box_threshold: 0.2
+    text_threshold: 0.2
+    queries:
+    - a television network watermark
+    - a channel logo in the corner of the screen
+    - a digital graphic logo
+    - a sports broadcast logo
+    - a brand logo on a sports shirt
+    - a sponsor logo on athletic shorts
+    - a logo on a tennis racket
+    - a sportswear brand logo
+    - a sponsor logo on a sports uniform
+    - an advertising board sponsor logo
+    - a logo printed on a sports court surface
+    - a sponsor logo on a billiard table border
+    - a tournament logo on a wall
+    - a brand name printed on a banner
+    - a brand name on medicine packaging
+    - a company logo on a food box
+    - a brand logo on a frozen food bag
+    - a toy brand logo
+    - a corporate logo on a product label
+    - a logo on a security camera device
+    - a corporate trademark
+    - a small brand icon
+    - a company symbol
+    - a text-based brand logo
+    - a commercial brand mark
+    - an enterprise emblem
+    - a distinctive brand insignia
+    - a recognizable company badge
+    - a generic logo
+    - an organization's crest
+    - a commercial watermark
+    - a manufacturer's mark
+    - an official logo graphic
+    - a product
+    - a potential logo
+    - a company
+    - a brand
+    min_crop_px: 16
+  yolo:
+    enabled: true
+    weights: weights/best.pt
+    imgsz: 640
+    conf: 0.25
+    iou_nms: 0.7
+    class_agnostic: true
+    log_predicted_class: true
+merge:
+  enabled: true
+  iou_threshold: 0.7
+  containment_threshold: 0.9
+  area_ratio_threshold: 0.8
+  min_merge_area: 0.0004
+  representative: tighter
+  small_box:
+    enabled: false
+    pixel_area_cutoff: 400
+    centre_distance_threshold: 0.5
+  log_failed_pairs: true
+  legacy_filters_enabled: false
+refinement:
+  enabled: true
+  heuristic_1_provenance: true
+  heuristic_2_ocr_tightening:
+    enabled: true
+    ocr_min_confidence: 0.4
+    brand_match_min_score: 80
+    padding_ratio: 0.1
+    min_area_ratio_vs_loose: 0.05
+    max_area_ratio_vs_loose: 0.95
+    min_side_px: 12
+    max_aspect: 8.0
+  heuristic_5_oversized_guard:
+    enabled: true
+    area_ratio: 0.45
+  heuristics_3_4_enabled: false
+ocr:
+  languages:
+  - en
+  - it
+  gpu: auto
+  upscale_min_side: 80
+  upscale_factor: 3
+  fallback_to_enlarged_crop: true
+  normalise:
+    lowercase: true
+    strip_non_alphanumeric: true
+    collapse_whitespace: true
+  matching:
+    short_name_cutoff: 4
+    exact_match_short: true
+    general_fuzzy_threshold: 90
+    scorer: WRatio
+    match_lists:
+    - canonical
+    - audio
+  cheap_call_keep_boxes: true
+faiss:
+  index_path: FAISS/logo_index.faiss
+  metadata_path: FAISS/metadata.json
+  embedder: clip
+  top_k: 5
+  overfetch_factor: 3
+  similarity_threshold: 0.0
+  rule7_top1_threshold: 0.97
+  rule7_score_gap: 0.08
+  rule12_top1_threshold: 0.97
+  rule14_top1_threshold: 0.9
+  abstain_threshold: null
+audio:
+  enabled: true
+  whisper_model_id: openai/whisper-large-v3
+  task: transcribe
+  language: italian
+  text_model_id: Qwen/Qwen2.5-7B-Instruct
+  text_decoding: greedy
+  brand_prompt: task2_italian
+signals:
+  tight_crop:
+    include_in_vlm_prompt: true
+  enlarged_crop:
+    include_in_vlm_prompt: true
+  full_frame:
+    include_in_vlm_prompt: true
+  temporal_context:
+    include_in_vlm_prompt: true
+  audio:
+    compute_and_log: true
+    include_in_vlm_prompt: true
+  faiss:
+    compute_and_log: true
+    include_in_vlm_prompt: true
+  ocr:
+    compute_and_log: true
+    include_in_vlm_prompt: true
+vlm:
+  model_id: Qwen/Qwen2.5-VL-7B-Instruct
+  quantisation: 4bit
+  max_pixels: 100352
+  max_new_tokens: 256
+  decoding: greedy
+  brand_mode: open
+  unknown_explicit_option: true
+  channel_watermark_line: true
+  hinted_pass: true
+  blind_pass: true
+  blind_pass_signals:
+  - tight_crop
+  - enlarged_crop
+  - full_frame
+  - temporal_context
+  log_hint_composition: true
+  scoring:
+    enabled: false
+    labels:
+    - logo
+    - partial_logo
+    - not_logo
+    - uncertain
+    method: sequence_logprob
+    distribution_check_required: true
+canonicalisation:
+  alias_first: true
+  exact_then_fuzzy: true
+  fuzzy_threshold: 90
+  short_name_cutoff: 4
+  audio_brands_as_targets: true
+  llm_merge:
+    enabled: false
+    model_id: Qwen/Qwen2.5-7B-Instruct
+watermark:
+  margin: 0.02
+  containment_threshold: 0.5
+  regions_ref_required: false
+router:
+  enabled: true
+  rules:
+    rule_1: true
+    rule_1_fallback_logprob: false
+    rule_2: true
+    rule_3: true
+    rule_4: true
+    rule_5_review: true
+    rule_5_reject: false
+    rule_6: true
+    rule_7: false
+    rule_8: false
+    rule_9: true
+    rule_10: true
+    rule_11_review: true
+    rule_11_reject: true
+    rule_12: true
+    rule_13: true
+    rule_14: true
+    rule_15: true
+    rule_16: true
+    rule_17: true
+    rule_18: true
+  thresholds:
+    rule1_not_logo_confidence: 0.8
+    rule1_logo_probability_max: 20
+    rule4_area_ratio: 0.45
+    rule5_ocr_fuzzy: 90
+    rule5_reject_ocr_fuzzy: 70
+    rule6_ocr_fuzzy_threshold: 95
+    rule8_logo_probability: 95
+    rule9_strong_ocr: 95
+    rule11_ocr_fuzzy: 80
+    rule12_ocr_fuzzy: 80
+    rule12_ocr_fuzzy_second: 90
+    rule13_ocr_fuzzy: 85
+    rule16_ocr_fuzzy: 80
+  dedup:
+    dedup_iou_threshold: 0.5
+    dedup_containment_threshold: 0.8
+    dedup_area_ratio_threshold: 0.8
+    post_vlm_min_merge_area_enabled: false
+  scoring_layer:
+    compute_trust_risk: true
+  brand_evidence:
+    compute: true
+  firing_log: true
+output:
+  csv_name: rows.csv
+  csv_paths: relative
+  annotated_frames: true
+  annotated_video: true
+  video_codec: mp4v
+  draw:
+    brand: true
+    decision: true
+    reason_code: true
+    det_id: true
+crops:
+  enlarge_factor: 1.5
+  jpeg_quality: 95
+brands:
+  list_path: configs/brands/roboflow_2026-04-28.yaml
+  require_hash_match: false
+evaluation:
+  labels_path: null
+  iou_match_threshold: 0.5
+  roboflow_labels_dir: null
+  channel_classes:
+  - rai
+  - rai fiction
+  - mediaset
+  - rete 4
+  - boing
+  - nove
+  - sport italia
+  - sky
+  - sky wifi
+  - discovery plus
+  - infinity plus
+  - paramount plus
+  - m6
+  - x factor
+  - tim

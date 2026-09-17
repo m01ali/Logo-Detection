@@ -1,0 +1,12 @@
+# Per-video config (04). video_1.mp4 is confirmed as a "Rai Sport
+# advertising block" (spec docs/20 item 5), so channel/channel_brand are set
+# with confidence; watermark_regions_ref is a forward reference to the T50
+# regions store, which is not built until MM6 (spec docs/12) and is
+# harmless to name now (watermark.py is a stub in MM1; it reports
+# watermark_regions_available: false regardless of this key).
+video_id: video_1
+source: video_1.mp4
+channel: rai_sport
+channel_brand: rai sport
+watermark_regions_ref: rai_sport_default
+overrides: {}

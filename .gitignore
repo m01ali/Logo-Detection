@@ -75,7 +75,13 @@ Thumbs.db
 *.swo
 *~
 # ── Folders ─────────────────────────────────────────────────────────────────────
-docs/
+docs/*
+!docs/received_artefacts.md
+!docs/row_schema_generated.md
+!docs/yolov11-m2-validation/
 extraction_output/
 *.mp4
-
+fixed-images/
+runs/
+logo_audio.wav
+*.avi 

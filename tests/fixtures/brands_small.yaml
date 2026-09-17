@@ -1,0 +1,31 @@
+version: "2026-01-01"
+source: "synthetic test fixture (21_test_plan.md)"
+content_hash: "sha256:placeholder"
+normalisation: "lowercase; unicode NFKD; strip accents; keep [a-z0-9 ]; collapse spaces"
+brands:
+  - canonical: "rai"
+    aliases: ["rai 1", "rai 2", "rai news 24"]
+    channel: true
+  - canonical: "rai sport"
+    aliases: ["rai sport hd", "raisport"]
+    channel: true
+  - canonical: "verisure"
+    aliases: ["very sure", "verishore"]
+  - canonical: "hp"
+    aliases: []
+  - canonical: "x"
+    aliases: []
+  - canonical: "wolkswagen"
+    aliases: ["volkswagen"]
+  - canonical: "nike"
+    aliases: []
+  - canonical: "ikea"
+    aliases: []
+  - canonical: "bmw"
+    aliases: []
+  - canonical: "fiat"
+    aliases: ["fiat 500"]
+  - canonical: "eni"
+    aliases: []
+  - canonical: "tim"
+    aliases: []

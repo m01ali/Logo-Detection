@@ -421,7 +421,8 @@ def build_final_instruction(
             "(ii)  If it is a logo or partial logo, what is the brand name? "
             "The audio / FAISS / OCR hints are soft evidence — they may be wrong or "
             "incomplete, and you may name a brand that appears in no hint. "
-            'If you cannot identify the brand, output exactly "UNKNOWN".\n'
+            'If you cannot identify the brand, or it is a logo of a brand you do not '
+            'recognise, output exactly "UNKNOWN".\n'
         )
 
     signal_vocab = ", ".join(f'"{s}"' for s in CANONICAL_SIGNALS)

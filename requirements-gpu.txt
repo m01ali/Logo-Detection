@@ -1,0 +1,23 @@
+# GPU-machine additions on top of requirements-macos.txt (07 MM0 housekeeping).
+#
+# Install the base CPU-path requirements first, then these on top, on the
+# machine chosen for MM1 Step 5 / MM2 T12 / MM9 (19 B3: which GPU machine is
+# the user's decision — task2-whisper-qwen.py targets an RTX 3090):
+#
+#   pip install -r requirements-macos.txt
+#   pip install -r requirements-gpu.txt
+#
+# Versions below are unpinned placeholders (01 §7: "pin versions from the
+# GPU machine's environment when first run there"). Once MM1 Step 5's
+# acceptance run happens on the real GPU machine, replace every line with
+# `pip freeze` output for that package and commit the pin — the run
+# manifest's own `pip_freeze` snapshot (03 §8) is the source of truth for
+# what a given run actually used.
+
+ultralytics          # T12 (08): YOLO11-L class-agnostic detection stage
+bitsandbytes         # 4-bit quantisation: the VLM (Qwen2.5-VL-7B) and the audio text model
+qwen-vl-utils        # process_vision_info() for the Qwen2.5-VL chat template (already on the
+                     # macOS list per 01 §7, but the VLM only actually runs on the GPU machine)
+textdistance         # utils/fuzzy_matching.py smart_score() — Jaro-Winkler for short strings;
+                     # imported by stages/ocr.py in MM4, absent from both existing requirement
+                     # files today (01 §7)

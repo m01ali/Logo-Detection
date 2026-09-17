@@ -300,23 +300,34 @@ class Qwen2_5TextModel:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": task_prompt}
         ]
-        
+
         text = self.tokenizer.apply_chat_template(
             messages,
             tokenize=False,
             add_generation_prompt=True
         )
-        
+
         model_inputs = self.tokenizer([text], return_tensors="pt").to(self.model.device)
-        
+
+        # Defaults preserve the original M2 behaviour (sampled, temperature 1.2)
+        # for existing callers (e.g. brand canonicalization). The logo_pipeline
+        # audio stage passes do_sample=False for deterministic brand extraction
+        # (M3 T10/07 MM1 Step 5: a re-run must reproduce the same audio brands).
+        gen_kwargs = {"max_new_tokens": 768, "do_sample": True, "temperature": 1.2}
+        gen_kwargs.update({
+            k: v for k, v in kwargs.items()
+            if k in ("max_new_tokens", "do_sample", "temperature", "top_p", "top_k")
+        })
+        if not gen_kwargs.get("do_sample", True):
+            gen_kwargs.pop("temperature", None)
+            gen_kwargs.pop("top_p", None)
+            gen_kwargs.pop("top_k", None)
+
         generated_ids = self.model.generate(
                             **model_inputs,
-                            max_new_tokens=768,
-                            do_sample=True,
-                            temperature=1.2,
-                            # temperature=0.2,
+                            **gen_kwargs,
                         )
-        
+
         generated_ids = [
             output_ids[len(input_ids):] for input_ids, output_ids in zip(model_inputs.input_ids, generated_ids)
         ]

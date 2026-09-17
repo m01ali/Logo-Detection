@@ -1,0 +1,23 @@
+# Per-video config (04). channel/channel_brand are left null: no spec
+# document confirms video_3-trimmed's channel (unlike video_1, which
+# spec docs/20 item 5 names as a Rai Sport block) and it should not be
+# guessed.
+#
+# The detector overrides reproduce the M2 run this video's acceptance check
+# is measured against (07 MM1 Step 3/5: "212 GDINO lines ... row count
+# (212)"): M2's extraction_output/video_3-trimmed/manifest.json config was
+# sampling_mode=segment, segment_duration_seconds=3.0, box_threshold=0.15
+# (text_threshold 0.2 already matches the pipeline default).
+video_id: video_3-trimmed
+source: video_3-trimmed.mp4
+channel: null
+channel_brand: null
+watermark_regions_ref: null
+overrides:
+  sampling:
+    mode: segment
+    segment:
+      duration_s: 3.0
+  detectors:
+    gdino:
+      box_threshold: 0.15

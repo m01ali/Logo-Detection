@@ -36,8 +36,13 @@ import torch
 from PIL import Image
 from tqdm.auto import tqdm
 
-# ── Set your HuggingFace token (or set HF_TOKEN env variable before running) ─
-os.environ["HF_TOKEN"] = "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"   # ← paste here, or export HF_TOKEN=... in shell
+# ── Set your HuggingFace token via the HF_TOKEN environment variable before ──
+# running this script (`export HF_TOKEN=...`). A live token was previously
+# committed here in plain text; it has been removed (07 MM0 housekeeping) and
+# MUST be revoked on huggingface.co — do not paste a replacement token into
+# source. `os.environ.setdefault` only fills the variable if it is not
+# already set, so an exported HF_TOKEN takes precedence.
+os.environ.setdefault("HF_TOKEN", "")
 
 # =============================================================================
 # CONFIG — edit these paths to match your local setup
