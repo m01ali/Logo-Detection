@@ -1,8 +1,8 @@
 """``stages/router_input.py`` (07 MM1 Step 4.3): joins every per-stage
 JSONL into ``router_input.jsonl``, the frozen row (05) minus the router's
 own decision fields (section K's five ``router_input``-stage fields are
-computed here with a best-effort formula; their full T43 definition is MM5,
-``spec docs/11`` — out of scope for this document). Missing stages (not
+computed here by ``router.inputs.derive_flags``, the T43 definition the router
+itself re-applies at replay time; ``spec docs/11``). Missing stages (not
 yet built, or disabled by the YAML) leave their fields null, which is what
 lets MM1 ship a complete, valid row shape before MM2–MM9 exist.
 
@@ -16,6 +16,8 @@ from __future__ import annotations
 from dataclasses import asdict
 
 from ..schema import Row
+from .canonicalise import canonicalise
+from .router.inputs import derive_flags
 from .base import (AUDIO_HINTS_FILE, CANONICAL_FILE, FAISS_HINTS_FILE, MERGED_DETECTIONS_FILE, OCR_FILE,
                     REFINEMENT_FILE, ROUTER_INPUT_FILE, VLM_BLIND_FILE, VLM_HINTED_FILE,
                     VLM_HINT_COMPOSITION_FILE, WATERMARK_FILE, RunContext, Stage, StageResult)
@@ -72,16 +74,14 @@ class RouterInputStage(Stage):
             canonical_brand = can.get("canonical_brand")
             ocr_brand_match = oc.get("ocr_brand_match")
             faiss_top1_score = fq.get("faiss_top1_score")
-            faiss_confirmed = canonical_brand is not None and can.get("faiss_top1_brand_canonical") == canonical_brand
-            ocr_confirmed = canonical_brand is not None and ocr_brand_match == canonical_brand
-            if ocr_confirmed and faiss_confirmed:
-                brand_evidence = "both"
-            elif ocr_confirmed:
-                brand_evidence = "ocr_confirmed"
-            elif faiss_confirmed:
-                brand_evidence = "faiss_confirmed"
-            else:
-                brand_evidence = "none"
+            audio_c = can.get("audio_brands_canonical", [])
+            flags = derive_flags(
+                vlm_brand_c=canonical_brand,
+                ocr_brand_c=canonicalise(ocr_brand_match, ctx.brands, cfg.canonicalisation, audio_c).canonical,
+                ocr_fuzzy_score=oc.get("ocr_fuzzy_score", 0), faiss_agrees_with_vlm=can.get("faiss_agrees_with_vlm"),
+                faiss_top1_score=faiss_top1_score, faiss_score_gap=fq.get("faiss_score_gap"),
+                brand_from_audio=can.get("brand_from_audio", False),
+                brand_from_faiss=bool(can.get("hinted_brand_in_faiss_hints")), cfg=cfg)
 
             row = Row(
                 video_id=manifest["video_id"], run_id=manifest["run_id"], det_id=det_id,
@@ -136,12 +136,7 @@ class RouterInputStage(Stage):
                 watermark_regions_available=wm.get("watermark_regions_available", False),
                 watermark_overlap=wm.get("watermark_overlap"), watermark_overlap_ratio=wm.get("watermark_overlap_ratio"),
 
-                brand_evidence=brand_evidence,
-                has_conflicting_ocr=bool(canonical_brand and ocr_brand_match and ocr_brand_match != canonical_brand),
-                strong_visual_match=bool(faiss_top1_score is not None
-                                          and faiss_top1_score >= cfg.faiss.rule14_top1_threshold),
-                audio_only_prediction=bool(can.get("brand_from_audio") and not faiss_confirmed and not ocr_confirmed),
-                faiss_only_prediction=bool(faiss_confirmed and not can.get("brand_from_audio") and not ocr_confirmed),
+                **flags,
                 router_decision=None, router_reason=None, reason_code=None, router_rule=None,
                 router_confidence=None, risk_score=None, trust_score=None, review_priority=None,
                 dedup_cluster_id=None, dedup_representative=None, rules_matched_preempted=[],

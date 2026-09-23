@@ -245,11 +245,13 @@ watermark:
   regions_ref_required: false
 router:
   enabled: true
+  not_logo_confidence_source: generated
+  enhanced_vlm_fields_available: false
   rules:
     rule_1: true
     rule_1_fallback_logprob: false
-    rule_2: true
-    rule_3: true
+    rule_2: false
+    rule_3: false
     rule_4: true
     rule_5_review: true
     rule_5_reject: false
@@ -288,6 +290,30 @@ router:
     post_vlm_min_merge_area_enabled: false
   scoring_layer:
     compute_trust_risk: true
+    trust:
+      vlm_logo: 3
+      brand_type_brand: 2
+      is_brand_identifier: 2
+      ocr_strong: 4
+      ocr_strong_threshold: 90
+      brand_in_database: 1
+      faiss_strong_agreement: 1
+      small_box: 1
+      small_box_area_ratio: 0.2
+      tight_bbox: 1
+    risk:
+      partial_logo: 3
+      uncertain: 4
+      truncated: 4
+      non_brand_type: 6
+      audio_weak_ocr: 4
+      faiss_weak_ocr: 4
+      weak_ocr_threshold: 80
+      conflicting_ocr: 5
+      faiss_conflict: 3
+      oversized: 4
+      oversized_area_ratio: 0.45
+      channel_outside_watermark: 5
   brand_evidence:
     compute: true
   firing_log: true

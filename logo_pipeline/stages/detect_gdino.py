@@ -36,6 +36,19 @@ class DetectGdinoStage(Stage):
             ctx.log.stage_skipped(self.name, "detectors.gdino.enabled is false")
             return StageResult(counts={"boxes": 0, "enabled": False})
 
+        # raw_detections.jsonl has one header (base.read_jsonl keeps only the
+        # first _header line); detect_gdino runs before detect_yolo in
+        # DEFAULT_STAGES so its own header always wins, but record into
+        # run_manifest.json too so YOLO's config isn't the only one that
+        # needs this workaround.
+        detectors_manifest = dict(ctx.manifest.get("detectors", {}))
+        detectors_manifest["gdino"] = {
+            "model_id": gcfg.model_id, "box_threshold": gcfg.box_threshold,
+            "text_threshold": gcfg.text_threshold, "min_crop_px": gcfg.min_crop_px,
+            "num_queries": len(gcfg.queries),
+        }
+        ctx.update_manifest(detectors=detectors_manifest)
+
         path = ctx.path(RAW_DETECTIONS_FILE)
         path.parent.mkdir(parents=True, exist_ok=True)
         _, existing_rows = ctx.read_jsonl(RAW_DETECTIONS_FILE, with_header=True)

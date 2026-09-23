@@ -1,5 +1,9 @@
-"""21_test_plan.md — MM1: merge pass-through, refine/canonicalise/watermark/
-router stubs, and router_input's join (synthetic fixtures, no heavy deps)."""
+"""21_test_plan.md — MM1: refine/canonicalise/watermark/router stubs and
+router_input's join (synthetic fixtures, no heavy deps). The merge
+algorithm itself (T13-T19) is tested in test_mm2_detection_merge.py; these
+fixtures use a single raw detection per frame so the real (default-enabled)
+greedy merge and the old MM1 pass-through produce an identical single
+representative either way."""
 
 from __future__ import annotations
 
@@ -25,8 +29,10 @@ def _write_raw_detections(ctx, dets: list[dict]) -> None:
     ctx.write_jsonl("raw_detections.jsonl", dets, header=header)
 
 
-def test_merge_pass_through_one_rep_per_box(tmp_path, repo_root):
-    ctx = make_ctx(tmp_path, repo_root, n_frames=2, frame_size=(200, 100))
+def test_merge_disabled_pass_through_one_rep_per_box(tmp_path, repo_root):
+    """T16: merge.enabled: false — the MM1 pass-through path is kept."""
+    ctx = make_ctx(tmp_path, repo_root, n_frames=2, frame_size=(200, 100),
+                    overrides={"merge": {"enabled": False}})
     dets = [
         {"raw_det_id": 0, "frame_idx": 0, "source": "gdino", "box_xyxy": [10, 10, 30, 30],
          "score": 0.9, "label": "a logo", "class_conf": None, "frame_width": 200, "frame_height": 100},
@@ -124,7 +130,7 @@ def test_watermark_stub_reports_no_regions(tmp_path, repo_root):
     assert rows[0]["watermark_overlap"] is None
 
 
-def test_router_stub_decision_is_null(tmp_path, repo_root):
+def test_router_without_vlm_output_routes_to_unparsed_review(tmp_path, repo_root):
     ctx = make_ctx(tmp_path, repo_root)
     _write_raw_detections(ctx, [
         {"raw_det_id": 0, "frame_idx": 0, "source": "gdino", "box_xyxy": [1, 2, 3, 4],
@@ -136,10 +142,12 @@ def test_router_stub_decision_is_null(tmp_path, repo_root):
     RouterInputStage().run(ctx)
     RouterStage().run(ctx)
     out = ctx.read_jsonl("router_output.jsonl")
-    assert out[0]["router_decision"] is None
+    # No VLM stage output in this fixture: the row is unparsed, so it falls through to block 6's X code (MM5).
+    assert out[0]["router_decision"] == "REVIEW"
+    assert out[0]["reason_code"] == "vlm_output_unparsed"
     assert out[0]["router_rule"] is None
     firing = ctx.read_jsonl("firing_log.jsonl")
-    assert firing == []
+    assert [f["det_id"] for f in firing] == [0]
 
 
 def test_router_input_covers_every_csv_column(tmp_path, repo_root):

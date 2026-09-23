@@ -346,8 +346,8 @@ class WatermarkCfg:
 class RouterRulesCfg:
     rule_1: bool = True
     rule_1_fallback_logprob: bool = False
-    rule_2: bool = True
-    rule_3: bool = True
+    rule_2: bool = False          # needs brand_type (enhanced VLM fields, not produced in M3 v1)
+    rule_3: bool = False          # needs is_brand_identifier (same)
     rule_4: bool = True
     rule_5_review: bool = True
     rule_5_reject: bool = False
@@ -393,8 +393,43 @@ class RouterDedupCfg:
 
 
 @dataclass
+class TrustWeightsCfg:
+    """18 July §8 trust constants. The ``brand_type`` / ``is_brand_identifier`` terms only
+    contribute when ``router.enhanced_vlm_fields_available`` is true."""
+    vlm_logo: int = 3
+    brand_type_brand: int = 2
+    is_brand_identifier: int = 2
+    ocr_strong: int = 4
+    ocr_strong_threshold: int = 90
+    brand_in_database: int = 1
+    faiss_strong_agreement: int = 1
+    small_box: int = 1
+    small_box_area_ratio: float = 0.20
+    tight_bbox: int = 1
+
+
+@dataclass
+class RiskWeightsCfg:
+    """18 July §8 risk constants (same enhanced-field caveat as the trust weights)."""
+    partial_logo: int = 3
+    uncertain: int = 4
+    truncated: int = 4
+    non_brand_type: int = 6
+    audio_weak_ocr: int = 4
+    faiss_weak_ocr: int = 4
+    weak_ocr_threshold: int = 80
+    conflicting_ocr: int = 5
+    faiss_conflict: int = 3
+    oversized: int = 4
+    oversized_area_ratio: float = 0.45
+    channel_outside_watermark: int = 5
+
+
+@dataclass
 class ScoringLayerCfg:
     compute_trust_risk: bool = True
+    trust: TrustWeightsCfg = field(default_factory=TrustWeightsCfg)
+    risk: RiskWeightsCfg = field(default_factory=RiskWeightsCfg)
 
 
 @dataclass
@@ -405,6 +440,8 @@ class BrandEvidenceCfg:
 @dataclass
 class RouterCfg:
     enabled: bool = True
+    not_logo_confidence_source: Literal["generated", "scored"] = "generated"   # Part E; flips after T32
+    enhanced_vlm_fields_available: bool = False        # brand_type / is_brand_identifier (24 July; M2 prompt lacks them)
     rules: RouterRulesCfg = field(default_factory=RouterRulesCfg)
     thresholds: RouterThresholdsCfg = field(default_factory=RouterThresholdsCfg)
     dedup: RouterDedupCfg = field(default_factory=RouterDedupCfg)
@@ -625,6 +662,12 @@ def validate_pipeline_cfg(cfg: PipelineCfg) -> None:
         raise ConfigError("router.rules.rule_5_reject is locked off for all of M3")
     if cfg.router.rules.rule_8:
         raise ConfigError("router.rules.rule_8 is locked off for all of M3")
+    if cfg.router.dedup.post_vlm_min_merge_area_enabled:
+        raise ConfigError("router.dedup.post_vlm_min_merge_area_enabled is locked off (T45)")
+    if cfg.router.not_logo_confidence_source == "scored" and not cfg.vlm.scoring.enabled:
+        raise ConfigError("router.not_logo_confidence_source 'scored' requires vlm.scoring.enabled (T31/T32)")
+    if not cfg.ocr.matching.exact_match_short:
+        raise ConfigError("ocr.matching.exact_match_short must stay true (T27/T28 has no alternative branch)")
     if cfg.ingest.mode == "frames" and not cfg.ingest.frames.dir:
         raise ConfigError("ingest.frames.dir is required when ingest.mode is 'frames'")
     unknown_blind = [s for s in cfg.vlm.blind_pass_signals
