@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 import json
 
 from logo_pipeline.stages.canonicalise import (CanonicaliseStage, canonicalise, canonicalise_audio_brands)
-from tests.helpers import make_ctx
-from tests.mm5_helpers import BRANDS, make_cfg
+from helpers import make_ctx  # noqa: E402
+from mm5_helpers import BRANDS, make_cfg  # noqa: E402
 
 
 def canon(s, audio=()):

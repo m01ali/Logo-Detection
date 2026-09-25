@@ -4,12 +4,17 @@ strict-input behaviour."""
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 import pytest
 
 from logo_pipeline.stages.router import rules
 from logo_pipeline.stages.router.engine import check_rules_producible, enabled_rules
 from logo_pipeline.stages.router.inputs import MissingRouterInput
-from tests.mm5_helpers import BRANDS, decide, inp, make_cfg, route, row, rules_on
+from mm5_helpers import BRANDS, decide, inp, make_cfg, route, row, rules_on  # noqa: E402
 
 FAISS_STRONG = dict(faiss_top1="nike", faiss_top1_brand_canonical="nike", faiss_agrees_with_vlm=True,
                     faiss_top1_score=0.98, faiss_score_gap=0.10)

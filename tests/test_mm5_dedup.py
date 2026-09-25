@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 from logo_pipeline.stages import merge as merge_mod
 from logo_pipeline.stages.merge import merge_frame
 from logo_pipeline.stages.router.dedup import cluster_boxes
-from tests.mm5_helpers import make_cfg, route, row
+from mm5_helpers import make_cfg, route, row  # noqa: E402
 
 A = [0, 0, 100, 100]
 B = [10, 10, 110, 110]          # IoU with A is about 0.68

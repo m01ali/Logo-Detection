@@ -4,7 +4,11 @@ document and router replay determinism."""
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 
 from eval.ordering_checks import CHECK_1, CHECK_2, check_firing_log, read_firing_log
 from logo_pipeline.stages.canonicalise import CanonicaliseStage
@@ -12,7 +16,7 @@ from logo_pipeline.stages.router.engine import RouterStage, route_rows
 from logo_pipeline.stages.router.reason_codes import CODE_DOCS, ReasonCode, render_markdown
 from logo_pipeline.stages.router_input import RouterInputStage
 from logo_pipeline.stages.watermark import WatermarkStage
-from tests.helpers import make_ctx
+from helpers import make_ctx  # noqa: E402
 
 
 def _rep(det_id, frame_idx, box):
@@ -94,7 +98,7 @@ def test_router_replay_is_deterministic_and_rereads_thresholds(tmp_path, repo_ro
     rows = ctx.read_jsonl("router_input.jsonl")
     first = route_rows(rows, ctx.cfg, ctx.brands)
     assert first == route_rows(rows, ctx.cfg, ctx.brands)
-    from tests.mm5_helpers import make_cfg
+    from mm5_helpers import make_cfg
     strict = make_cfg({"router": {"thresholds": {"rule6_ocr_fuzzy_threshold": 99}}})
     replay = {o["det_id"]: o for o in route_rows(rows, strict, ctx.brands)[0]}
     assert replay[0]["router_rule"] != 6            # the stored flags do not pin the decision
