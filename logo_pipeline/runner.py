@@ -86,16 +86,18 @@ def run_pipeline(
             log.stage_skipped(name, "already done at this config_hash")
             continue
         log.stage_start(name, stage.device)
+        started_at = utcnow_iso()
         t0 = time.perf_counter()
         try:
             result = stage.run(ctx)
         except Exception:
-            status[name] = {"status": "failed", "config_hash": ctx.config_hash, "finished": utcnow_iso()}
+            status[name] = {"status": "failed", "config_hash": ctx.config_hash, "started": started_at,
+                            "finished": utcnow_iso()}
             save_stage_status(rdir, status)
             log.close()
             raise
         elapsed = time.perf_counter() - t0
-        status[name] = {"status": "done", "config_hash": ctx.config_hash, "started": utcnow_iso(),
+        status[name] = {"status": "done", "config_hash": ctx.config_hash, "started": started_at,
                         "finished": utcnow_iso(), "elapsed_s": round(elapsed, 2), "counts": result.counts}
         save_stage_status(rdir, status)
         log.stage_end(name, result.counts)
