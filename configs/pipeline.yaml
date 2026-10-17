@@ -32,6 +32,7 @@ run:
   - faiss_query
   - audio
   - vlm
+  - vlm_scoring
   - canonicalise
   - watermark
   - router_input

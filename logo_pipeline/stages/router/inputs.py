@@ -20,7 +20,7 @@ from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any
 
-from ...brands import BrandList
+from ...brands import BrandList, normalise
 from ..canonicalise import UNKNOWN, canonicalise
 
 
@@ -63,16 +63,18 @@ def derive_flags(*, vlm_brand_c: str | None, ocr_brand_c: str | None, ocr_fuzzy_
             "brand_evidence": brand_evidence}
 
 
-def known_channel_brands(repo_root: Path, video, brands: BrandList) -> frozenset[str]:
+def known_channel_brands(repo_root: Path, video, brands: BrandList, wcfg=None) -> frozenset[str]:
     """``channel_brands`` of the referenced watermark-region entry when there is one (T50),
-    else the ``channel: true`` brands of the snapshot (T49)."""
-    ref = getattr(video, "watermark_regions_ref", None)
-    store = Path(repo_root) / "configs" / "watermark_regions.yaml"
-    if ref and store.exists():
-        import yaml
-        entry = (yaml.safe_load(store.read_text(encoding="utf-8")) or {}).get(ref)
-        if entry and entry.get("channel_brands"):
-            return frozenset(brands.map_exact(b) or b for b in entry["channel_brands"])
+    else the ``channel: true`` brands of the snapshot (T49). Each is put through the alias table,
+    so a store entry may name a brand by any of its spellings."""
+    from ...watermark_regions import load_regions_store, regions_for_video, REGIONS_STORE
+    if wcfg is not None:
+        entry = regions_for_video(repo_root, video, wcfg)
+    else:
+        ref = getattr(video, "watermark_regions_ref", None)
+        entry = load_regions_store(Path(repo_root) / REGIONS_STORE).get(ref) if ref else None
+    if entry and entry.channel_brands:
+        return frozenset(brands.map_exact(b) or normalise(b) for b in entry.channel_brands)
     return frozenset(brands.channel_brands)
 
 
@@ -146,8 +148,7 @@ class RouterInput:
         confidence = _need(row, "confidence")
 
         if cfg.router.not_logo_confidence_source == "scored":
-            scores = _need(row, "decision_scores")
-            not_logo_confidence = None if scores is None else scores.get("not_logo")
+            not_logo_confidence = _need(row, "not_logo_confidence")      # T31's field
         else:
             not_logo_confidence = confidence / 100 if vlm_decision == "not_logo" and confidence is not None else None
 

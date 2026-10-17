@@ -117,8 +117,9 @@ def test_vlm_stage_unparseable_reply_sets_parse_ok_false(tmp_path, repo_root):
     assert rows[0]["parsed"] is None
 
 
-def test_vlm_stage_skips_when_hinted_pass_disabled(tmp_path, repo_root):
-    ctx = make_ctx(tmp_path, repo_root, n_frames=1, overrides={"vlm": {"hinted_pass": False}})
+def test_vlm_stage_skips_when_both_passes_disabled(tmp_path, repo_root):
+    ctx = make_ctx(tmp_path, repo_root, n_frames=1,
+                   overrides={"vlm": {"hinted_pass": False, "blind_pass": False}})
     _prep(ctx)
     with patch("logo_pipeline.stages.vlm._get_model") as m:
         result = VlmStage().run(ctx)

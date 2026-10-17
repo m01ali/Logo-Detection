@@ -13,7 +13,8 @@ from __future__ import annotations
 import json
 
 from ..geometry import rounded_int_box
-from .base import RAW_DETECTIONS_FILE, RunContext, Stage, StageResult, dumps_line
+from .base import (RAW_DETECTIONS_FILE, RunContext, Stage, StageResult, detected_frames, dumps_line,
+                    mark_frame_detected, prepare_detection_source)
 
 
 class DetectGdinoStage(Stage):
@@ -23,12 +24,11 @@ class DetectGdinoStage(Stage):
     outputs = [RAW_DETECTIONS_FILE]
 
     def outputs_exist(self, ctx: RunContext) -> bool:
+        if not ctx.cfg.detectors.gdino.enabled:
+            return True     # nothing to produce, so nothing downstream can be stale
         if not ctx.path(RAW_DETECTIONS_FILE).exists():
             return False
-        rows = ctx.read_jsonl(RAW_DETECTIONS_FILE)
-        sampled = {f["frame_idx"] for f in ctx.sampled_frames()}
-        done = {r["frame_idx"] for r in rows if r.get("source") == "gdino"}
-        return sampled <= done
+        return {f["frame_idx"] for f in ctx.sampled_frames()} <= detected_frames(ctx, "gdino")
 
     def run(self, ctx: RunContext) -> StageResult:
         gcfg = ctx.cfg.detectors.gdino
@@ -50,10 +50,7 @@ class DetectGdinoStage(Stage):
         ctx.update_manifest(detectors=detectors_manifest)
 
         path = ctx.path(RAW_DETECTIONS_FILE)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        _, existing_rows = ctx.read_jsonl(RAW_DETECTIONS_FILE, with_header=True)
-        done_frames = {r["frame_idx"] for r in existing_rows if r.get("source") == "gdino"} if not ctx.force else set()
-        next_raw_id = max([r["raw_det_id"] for r in existing_rows], default=-1) + 1
+        done_frames, next_raw_id = prepare_detection_source(ctx, "gdino")
 
         sampled = ctx.sampled_frames()
         todo = [f for f in sampled if f["frame_idx"] not in done_frames]
@@ -101,6 +98,7 @@ class DetectGdinoStage(Stage):
                     next_raw_id += 1
                     n_boxes += 1
                 fh.flush()
+                mark_frame_detected(ctx, "gdino", frame_idx)   # also when the frame produced no box
                 ctx.log.progress(i, len(todo), unit="frame")
 
         return StageResult(counts={"frames_processed": len(todo), "boxes_written": n_boxes})

@@ -80,8 +80,31 @@ def test_detect_gdino_force_rewrites(tmp_path, repo_root):
     with _patched():
         DetectGdinoStage().run(ctx)
     rows = ctx.read_jsonl("raw_detections.jsonl")
-    # --force re-processes the frame; with append semantics this doubles the rows
-    # (documented behaviour: --force on detect_gdino is meant to be paired with
-    # a fresh run directory or a manual clear, matching the 03 idempotency model
-    # where --force means "recompute", not "deduplicate").
-    assert len(rows) == 2
+    # --force re-processes the frame and replaces this detector's earlier boxes (it used to
+    # append a second copy, which doubled every raw box and the merge counters).
+    assert len(rows) == 1
+    assert rows[0]["raw_det_id"] == 1      # ids stay unique across the rewrite
+
+
+def test_detect_gdino_force_keeps_yolo_lines(tmp_path, repo_root):
+    ctx = make_ctx(tmp_path, repo_root, n_frames=1, frame_size=(200, 100))
+    ctx.write_jsonl("raw_detections.jsonl", [
+        {"raw_det_id": 0, "frame_idx": 0, "source": "yolo", "box_xyxy": [1, 1, 30, 30], "score": 0.5,
+         "label": "x", "class_conf": 0.5, "frame_width": 200, "frame_height": 100}],
+        header=ctx.header("detect_yolo"))
+    ctx.force = True
+    with _patched():
+        DetectGdinoStage().run(ctx)
+    sources = sorted(r["source"] for r in ctx.read_jsonl("raw_detections.jsonl"))
+    assert sources == ["gdino", "yolo"]
+
+
+def test_detect_gdino_frame_with_no_boxes_counts_as_done(tmp_path, repo_root):
+    from logo_pipeline.stages.base import detected_frames
+    ctx = make_ctx(tmp_path, repo_root, n_frames=1, frame_size=(200, 100))
+    with patch("data_extraction_pipeline.DataExtractionPipeline") as P, patch("data_extraction_pipeline.PipelineConfig"):
+        P.return_value._run_detection.return_value = ([], [], [])
+        DetectGdinoStage().run(ctx)
+    assert ctx.read_jsonl("raw_detections.jsonl") == []
+    assert detected_frames(ctx, "gdino") == {0}
+    assert DetectGdinoStage().outputs_exist(ctx)

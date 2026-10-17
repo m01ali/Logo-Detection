@@ -319,17 +319,36 @@ def test_detect_yolo_force_rewrites(tmp_path, repo_root):
     with _patched_yolo():
         DetectYoloStage().run(ctx)
     rows = ctx.read_jsonl("raw_detections.jsonl")
-    # --force re-processes the frame; with append semantics this doubles the rows
-    # (same documented behaviour as detect_gdino's own force-rewrite test).
-    # 1 frame x 1 surviving box (the 3x3 box is dropped by min_crop_px) x 2 passes.
-    assert len(rows) == 2
+    # --force replaces this detector's earlier boxes: 1 frame x 1 surviving box (the 3x3 box is
+    # dropped by min_crop_px), not one copy per pass.
+    assert len(rows) == 1
+
+
+def test_detect_yolo_frame_with_no_boxes_is_not_reprocessed(tmp_path, repo_root):
+    """The Windows video_1 run re-ran one YOLO frame on every resume: a frame with zero boxes
+    wrote no line, so outputs_exist() never saw it as done."""
+    from logo_pipeline.stages.base import mark_frame_detected
+    ctx = make_ctx(tmp_path, repo_root, n_frames=2, frame_size=(200, 100))
+    ctx.write_jsonl("raw_detections.jsonl", [
+        {"raw_det_id": 0, "frame_idx": 0, "source": "yolo", "box_xyxy": [1, 1, 30, 30], "score": 0.5,
+         "label": "x", "class_conf": 0.5, "frame_width": 200, "frame_height": 100}],
+        header=ctx.header("detect_yolo"))
+    assert not DetectYoloStage().outputs_exist(ctx)      # frame 10 has no line and no mark
+    mark_frame_detected(ctx, "yolo", 10)
+    assert DetectYoloStage().outputs_exist(ctx)
 
 
 # ---------------------------------------------------------------------------
 # T12 Check — real video_3-trimmed vs the M2 YOLO predict label files
 # ---------------------------------------------------------------------------
 
-def _m2_label_box_count(label_path: Path) -> int:
+M2_YOLO_LABELS = Path("runs") / "detect" / "yolo results" / "video_3-trimmed" / "labels"
+
+
+def _m2_label_box_count(labels_dir: Path, frame_idx: int) -> int:
+    """Boxes M2's predict run found on 0-based ``frame_idx``. Ultralytics numbers a video's label
+    files from 1 (``<stem>_<n>.txt`` is frame n-1) and writes none for a frame without boxes."""
+    label_path = labels_dir / f"video_3-trimmed_{frame_idx + 1}.txt"
     if not label_path.exists():
         return 0
     return sum(1 for line in label_path.read_text().splitlines() if line.strip())
@@ -337,6 +356,8 @@ def _m2_label_box_count(label_path: Path) -> int:
 
 @pytest.mark.skipif(not Path("video_3-trimmed.mp4").exists(), reason="video_3-trimmed.mp4 not present")
 @pytest.mark.skipif(not Path("weights/best.pt").exists(), reason="weights/best.pt not present")
+@pytest.mark.skipif(not M2_YOLO_LABELS.is_dir(),
+                    reason="M2 YOLO label files not present (runs/ is git-ignored; copy them to run this check)")
 def test_detect_yolo_matches_m2_label_counts_on_video_3_trimmed(tmp_path, repo_root):
     pytest.importorskip("ultralytics")
     from logo_pipeline.brands import load_brand_list
@@ -362,9 +383,9 @@ def test_detect_yolo_matches_m2_label_counts_on_video_3_trimmed(tmp_path, repo_r
     log.close()
 
     rows = ctx.read_jsonl("raw_detections.jsonl")
-    labels_dir = repo_root / "runs" / "detect" / "yolo results" / "video_3-trimmed" / "labels"
+    labels_dir = repo_root / M2_YOLO_LABELS
     for f in ctx.sampled_frames():
         frame_idx = f["frame_idx"]
         got = sum(1 for r in rows if r["frame_idx"] == frame_idx)
-        want = _m2_label_box_count(labels_dir / f"video_3-trimmed_{frame_idx}.txt")
+        want = _m2_label_box_count(labels_dir, frame_idx)
         assert got == want, f"frame {frame_idx}: got {got} boxes, M2 label file has {want}"

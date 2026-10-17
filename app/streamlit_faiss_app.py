@@ -23,6 +23,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from models.faiss_db import LogoDatabaseNew, LogoDatabaseSigLIP2
+from logo_pipeline.faiss_store import EnrolmentRecord, enrol, utcnow
 from utils.video_annotations_to_crops import process_video_annotations
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
@@ -72,6 +73,12 @@ def load_database_siglip2():
     )
 
 _EMBED_MODEL_OPTIONS = ["CLIP (default)", "SigLIP2"]
+
+def _rec(brand: str, source_id, origin: str) -> EnrolmentRecord:
+    """Provenance for one image this manager adds (M3 T55): every add goes through enrol()."""
+    return EnrolmentRecord(brand=brand, source_id=str(source_id), enrolled_at=utcnow(), origin=origin,
+                           enrolled_by="faiss_manager")
+
 
 def get_db(model_label: str):
     """Return the correct DB instance for the selected embedding model."""
@@ -236,9 +243,8 @@ with tabs[0]:
         else:
             img = Image.open(uploaded_file).convert("RGB")
             _add_db = get_db(add_embed_model)
-            _add_db.add_logos(images=[img], brand_names=[brand_name.strip()],
-                        augmentations=AUGMENTATIONS if use_aug else None,
-                        num_augments=5)
+            enrol(_add_db, [img], [_rec(brand_name.strip(), f"upload:{uploaded_file.name}", "faiss_manager.add_logo")],
+                  augmentations=AUGMENTATIONS if use_aug else None, num_augments=5)
 
             # Update metrics
             st.session_state.global_metrics["total_known"] += 1
@@ -337,11 +343,12 @@ with tabs[3]:
             try:
                 logos = [item['crop'] for item in st.session_state.frame_results.values()]
                 labels = [item['label'].strip() for item in st.session_state.frame_results.values()]
+                keys = list(st.session_state.frame_results.keys())
                 # st.success(labels)
                 
-                db.add_logos(images=logos, brand_names=labels,
-                            augmentations=AUGMENTATIONS if use_aug else None,
-                            num_augments=5)
+                enrol(db, logos, [_rec(lbl, f"video_crops:{k}", "faiss_manager.video_crops")
+                                  for k, lbl in zip(keys, labels)],
+                      augmentations=AUGMENTATIONS if use_aug else None, num_augments=5)
                 
                 # Update metrics
                 st.session_state.global_metrics["total_known"] += len(logos)
@@ -720,8 +727,8 @@ def review_unknown_logos_tab(db, AUGMENTATIONS=None):
                         try:
                             img = Image.open(image_path).convert("RGB")
                             # Per-item add keeps original behavior (not tied to the bulk 'use augmentation' toggle)
-                            db.add_logos(
-                                [img], [brand_input],
+                            enrol(
+                                db, [img], [_rec(brand_input, image_path, "faiss_manager.unknown_single")],
                                 augmentations=(AUGMENTATIONS if AUGMENTATIONS else None),
                                 num_augments=(10 if AUGMENTATIONS else 0)
                             )
@@ -747,7 +754,7 @@ def review_unknown_logos_tab(db, AUGMENTATIONS=None):
         if not selected_on_page:
             st.warning("Select at least one image on this page.")
         else:
-            imgs, labels = [], []
+            imgs, labels, srcs = [], [], []
             processed, skipped = 0, 0
             for fn in selected_on_page:
                 p = str(Path(UNKNOWN_DIR) / fn)
@@ -759,6 +766,7 @@ def review_unknown_logos_tab(db, AUGMENTATIONS=None):
                 try:
                     imgs.append(Image.open(p).convert("RGB"))
                     labels.append(label)
+                    srcs.append(p)
                     ss[lbl_key] = label  # persist label for UI
                     processed += 1
                 except Exception:
@@ -767,10 +775,11 @@ def review_unknown_logos_tab(db, AUGMENTATIONS=None):
 
             # BULK add to FAISS — use augmentation ONLY if checkbox ticked
             if imgs:
+                bulk_recs = [_rec(lbl, src, "faiss_manager.unknown_bulk") for lbl, src in zip(labels, srcs)]
                 if ss.unknown_use_aug and AUGMENTATIONS is not None:
-                    db.add_logos(imgs, labels, augmentations=AUGMENTATIONS, num_augments=10)
+                    enrol(db, imgs, bulk_recs, augmentations=AUGMENTATIONS, num_augments=10)
                 else:
-                    db.add_logos(imgs, labels, augmentations=None, num_augments=0)
+                    enrol(db, imgs, bulk_recs, augmentations=None, num_augments=0)
 
             # Mark reviewed, log CSV, update metrics, and queue unselect for next run
             now = pd.Timestamp.utcnow().isoformat()
@@ -1302,8 +1311,8 @@ def review_known_logos_tab(db, AUGMENTATIONS=None):
                         brand_to_use = ss.known_brand_buffer.get(path_str, row["brand"])
                         mask = df["filepath"] == row["filepath"]
                         df.loc[mask, "brand"] = brand_to_use
-                        db.add_logos([img], [brand_to_use],
-                                     augmentations=(AUGMENTATIONS if use_aug else None), num_augments=5)
+                        enrol(db, [img], [_rec(brand_to_use, row["filepath"], "faiss_manager.known_update")],
+                              augmentations=(AUGMENTATIONS if use_aug else None), num_augments=5)
                         source_val = row["source"] if has_source_col else None
                         update_metrics("known", 1, source_val)
                         st.success(f"Updated FAISS entry for {brand_to_use}")
@@ -1312,8 +1321,8 @@ def review_known_logos_tab(db, AUGMENTATIONS=None):
                     if st.button("🚫 FALSE_LOGO", key=f"false_{row['filename']}"):
                         try:
                             img = Image.open(row["filepath"]).convert("RGB")
-                            db.add_logos([img], ["FALSE_LOGO"],
-                                         augmentations=(AUGMENTATIONS if use_aug else None), num_augments=5)
+                            enrol(db, [img], [_rec("FALSE_LOGO", row["filepath"], "faiss_manager.known_false_logo")],
+                                  augmentations=(AUGMENTATIONS if use_aug else None), num_augments=5)
                             mask = df["filepath"] == row["filepath"]
                             df.loc[mask, "brand"] = "FALSE_LOGO"
                             ss.known_brand_buffer[path_str] = "FALSE_LOGO"
@@ -1347,7 +1356,7 @@ def review_known_logos_tab(db, AUGMENTATIONS=None):
             elif correction_type != "False positive" and not new_brand_name.strip():
                 st.warning("Enter a valid brand name")
             else:
-                images_to_update, brands_to_update = [], []
+                images_to_update, brands_to_update, srcs_to_update = [], [], []
                 n_fp = n_typo = n_wrong = 0
 
                 for path_str in selected_paths:
@@ -1362,6 +1371,7 @@ def review_known_logos_tab(db, AUGMENTATIONS=None):
                             img = Image.open(path_str).convert("RGB")
                             images_to_update.append(img)
                             brands_to_update.append("FALSE_LOGO")
+                            srcs_to_update.append(path_str)
                             df.loc[mask, "brand"] = "FALSE_LOGO"
                             ss.known_brand_buffer[path_str] = "FALSE_LOGO"
                             update_metrics("false_positive", 1, source_val)
@@ -1381,6 +1391,7 @@ def review_known_logos_tab(db, AUGMENTATIONS=None):
                             img = Image.open(path_str).convert("RGB")
                             images_to_update.append(img)
                             brands_to_update.append(target_brand)
+                            srcs_to_update.append(path_str)
                         except Exception:
                             pass
                         if correction_type == "Typo in brand name":
@@ -1393,8 +1404,10 @@ def review_known_logos_tab(db, AUGMENTATIONS=None):
                             n_wrong += 1
 
                 if images_to_update:
-                    db.add_logos(
-                        images_to_update, brands_to_update,
+                    enrol(
+                        db, images_to_update,
+                        [_rec(b, src, "faiss_manager.known_bulk_correction")
+                         for b, src in zip(brands_to_update, srcs_to_update)],
                         augmentations=(AUGMENTATIONS if use_aug else None), num_augments=5
                     )
                 st.success(f"Applied corrections: {n_typo} typo, {n_wrong} wrong, {n_fp} false positives")
@@ -1407,7 +1420,7 @@ def review_known_logos_tab(db, AUGMENTATIONS=None):
             if not selected_paths:
                 st.warning("Select at least one image to confirm.")
             else:
-                imgs, labels = [], []
+                imgs, labels, srcs = [], [], []
                 n_confirmed = 0
                 for path_str in selected_paths:
                     mask = df["filepath"].astype(str) == path_str
@@ -1420,6 +1433,7 @@ def review_known_logos_tab(db, AUGMENTATIONS=None):
                         img = Image.open(path_str).convert("RGB")
                         imgs.append(img)
                         labels.append(brand_to_use)
+                        srcs.append(path_str)
                     except Exception:
                         pass
                     # metrics + corrections
@@ -1431,8 +1445,8 @@ def review_known_logos_tab(db, AUGMENTATIONS=None):
                         n_confirmed += 1
 
                 if imgs:
-                    db.add_logos(
-                        imgs, labels,
+                    enrol(
+                        db, imgs, [_rec(lbl, src, "faiss_manager.known_bulk_confirm") for lbl, src in zip(labels, srcs)],
                         augmentations=(AUGMENTATIONS if use_aug else None), num_augments=5
                     )
                 st.success(f"Confirmed {n_confirmed} attribution(s) and added {len(imgs)} logo(s) to FAISS.")

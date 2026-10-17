@@ -29,6 +29,8 @@ def get_stage(name: str) -> Stage:
         from .audio import AudioStage as S
     elif name == "vlm":
         from .vlm import VlmStage as S
+    elif name == "vlm_scoring":
+        from .vlm_scoring import VlmScoringStage as S
     elif name == "canonicalise":
         from .canonicalise import CanonicaliseStage as S
     elif name == "watermark":

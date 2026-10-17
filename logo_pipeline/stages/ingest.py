@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import subprocess
 
+from ..config import to_dict
 from ..frame_source import FolderFrameSource, VideoFrameSource, open_frame_source
 from .base import AUDIO_WAV_FILE, RUN_MANIFEST, RunContext, Stage, StageResult, utcnow_iso
 
@@ -48,6 +49,15 @@ def extract_audio(video_path, out_wav_path) -> bool:
             return False
         clip.audio.write_audiofile(str(out_wav_path), logger=None)
     return True
+
+
+def channel_brand_canonical(channel_brand: str | None, ctx: RunContext) -> str | None:
+    """05 J: the per-video ``channel_brand`` through the canonical map (steps 1-4 of T37); an
+    unlisted channel keeps its normalised spelling, as an unmatched VLM brand does."""
+    if not channel_brand:
+        return None
+    from .canonicalise import canonicalise_to_list
+    return canonicalise_to_list(channel_brand, ctx.brands, ctx.cfg.canonicalisation).canonical
 
 
 class IngestStage(Stage):
@@ -94,6 +104,9 @@ class IngestStage(Stage):
             "has_audio": has_audio,
             "channel": video.channel,
             "channel_brand": video.channel_brand,
+            "channel_brand_canonical": channel_brand_canonical(video.channel_brand, ctx),
+            # The per-video file (overrides included), so router-only (T61) can rebuild it without the YAML.
+            "video_config": to_dict(video),
         }
         ctx.write_json(RUN_MANIFEST, manifest)
         ctx.invalidate()

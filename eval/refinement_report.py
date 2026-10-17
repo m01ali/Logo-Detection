@@ -152,10 +152,10 @@ def render_markdown(run_dir: Path, stats: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--run", required=True, help="Run directory, e.g. runs/<video_id>/<run_id>")
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
 
     run_dir = Path(args.run)
     rows = read_jsonl(run_dir / "refinement.jsonl")

@@ -17,10 +17,11 @@ from dataclasses import asdict
 
 from ..schema import Row
 from .canonicalise import canonicalise
+from .ingest import channel_brand_canonical
 from .router.inputs import derive_flags
 from .base import (AUDIO_HINTS_FILE, CANONICAL_FILE, FAISS_HINTS_FILE, MERGED_DETECTIONS_FILE, OCR_FILE,
                     REFINEMENT_FILE, ROUTER_INPUT_FILE, VLM_BLIND_FILE, VLM_HINTED_FILE,
-                    VLM_HINT_COMPOSITION_FILE, WATERMARK_FILE, RunContext, Stage, StageResult)
+                    VLM_HINT_COMPOSITION_FILE, VLM_SCORES_FILE, WATERMARK_FILE, RunContext, Stage, StageResult)
 
 
 def _by_det(ctx: RunContext, relpath: str) -> dict[int, dict]:
@@ -56,10 +57,15 @@ class RouterInputStage(Stage):
         hint_comp = _by_det(ctx, VLM_HINT_COMPOSITION_FILE)
         canonical = _by_det(ctx, CANONICAL_FILE)
         watermark = _by_det(ctx, WATERMARK_FILE)
+        scores = _by_det(ctx, VLM_SCORES_FILE) if cfg.vlm.scoring.enabled else {}
         sampled_by_frame = {f["frame_idx"]: f for f in ctx.sampled_frames()}
         audio_hints = ctx.read_json(AUDIO_HINTS_FILE) if ctx.path(AUDIO_HINTS_FILE).exists() else {}
         audio_brands = audio_hints.get("brands", [])
         audio_status = audio_hints.get("status", "disabled")
+
+        # Manifests written before ingest recorded it carry only the raw channel_brand.
+        channel_c = (manifest["channel_brand_canonical"] if "channel_brand_canonical" in manifest
+                     else channel_brand_canonical(manifest.get("channel_brand"), ctx))
 
         rows: list[dict] = []
         for rep in reps:
@@ -68,6 +74,7 @@ class RouterInputStage(Stage):
             ref, oc, fq = refined.get(det_id, {}), ocr.get(det_id, {}), faiss.get(det_id, {})
             vh, vb = vlm_hinted.get(det_id, {}), vlm_blind.get(det_id, {})
             hc, can, wm = hint_comp.get(det_id, {}), canonical.get(det_id, {}), watermark.get(det_id, {})
+            sc = scores.get(det_id, {})
             vh_parsed = vh.get("parsed") or {}
             vb_parsed = vb.get("parsed") or {}
 
@@ -119,7 +126,8 @@ class RouterInputStage(Stage):
                 logo_probability=_clamp(vh_parsed.get("logo_probability")), confidence=_clamp(vh_parsed.get("confidence")),
                 signals_used=vh_parsed.get("signals_used", []), signals_used_raw=vh_parsed.get("signals_used_raw", []),
                 reasoning=vh_parsed.get("reasoning"), vlm_parse_ok=vh.get("vlm_parse_ok", False),
-                logo_probability_scored=None, not_logo_confidence=None, decision_scores=None,
+                logo_probability_scored=sc.get("logo_probability_scored"),
+                not_logo_confidence=sc.get("not_logo_confidence"), decision_scores=sc.get("decision_scores"),
 
                 vlm_decision_blind=vb_parsed.get("is_logo"), vlm_brand_blind=vb_parsed.get("brand"),
                 vlm_brand_blind_canonical=can.get("vlm_brand_blind_canonical"),
@@ -132,7 +140,7 @@ class RouterInputStage(Stage):
                 brand_list_version=can.get("brand_list_version", ctx.brands.version),
                 brand_list_hash=can.get("brand_list_hash", ctx.brands.content_hash),
 
-                channel=manifest.get("channel"), channel_brand_canonical=manifest.get("channel_brand_canonical"),
+                channel=manifest.get("channel"), channel_brand_canonical=channel_c,
                 watermark_regions_available=wm.get("watermark_regions_available", False),
                 watermark_overlap=wm.get("watermark_overlap"), watermark_overlap_ratio=wm.get("watermark_overlap_ratio"),
 
@@ -141,7 +149,8 @@ class RouterInputStage(Stage):
                 router_confidence=None, risk_score=None, trust_score=None, review_priority=None,
                 dedup_cluster_id=None, dedup_representative=None, rules_matched_preempted=[],
 
-                config_hash=manifest["config_hash"], experiment=manifest.get("experiment") or manifest["run_id"],
+                config_hash=manifest["config_hash"], git_sha=manifest.get("git_sha"),
+                experiment=manifest.get("experiment") or manifest["run_id"],
                 brand_mode=cfg.vlm.brand_mode, enabled_signals=vh.get("enabled_signals", []),
                 label=None, enrolled_to_faiss=False,
             )

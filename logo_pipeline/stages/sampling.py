@@ -71,7 +71,12 @@ class SamplingStage(Stage):
 
         if is_frames:
             ordinals = source.indices()  # sorted
-            if mode == "interval":
+            if ctx.video.frame_ordinals:          # route three: exactly the labelled ordinals (17 T66)
+                wanted = set(ctx.video.frame_ordinals)
+                positions = [i for i, o in enumerate(ordinals) if o in wanted]
+            elif ctx.video.process_all_frames:
+                positions = list(range(len(ordinals)))
+            elif mode == "interval":
                 positions = _interval_frames_positions(len(ordinals), source.fps, cfg.sampling.interval_s)
             elif mode == "segment":
                 # position space stands in for M2's frame-index space (03 §5.2 general rule)

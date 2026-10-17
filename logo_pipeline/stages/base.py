@@ -27,6 +27,7 @@ STAGE_STATUS = "stage_status.json"
 SHOTS_FILE = "shots.json"
 SAMPLED_FRAMES_FILE = "sampled_frames.json"
 RAW_DETECTIONS_FILE = "raw_detections.jsonl"
+DETECTED_FRAMES_FILE = "detected_frames.json"
 MERGED_DETECTIONS_FILE = "merged_detections.jsonl"
 MERGE_LOG_FILE = "merge_log.jsonl"
 MERGE_COUNTERS_FILE = "merge_counters.json"
@@ -38,6 +39,7 @@ AUDIO_WAV_FILE = "audio/audio.wav"
 VLM_HINTED_FILE = "vlm/hinted.jsonl"
 VLM_BLIND_FILE = "vlm/blind.jsonl"
 VLM_HINT_COMPOSITION_FILE = "vlm/hint_composition.jsonl"
+VLM_SCORES_FILE = "vlm/scores.jsonl"
 CANONICAL_FILE = "canonical.jsonl"
 WATERMARK_FILE = "watermark.jsonl"
 ROUTER_INPUT_FILE = "router_input.jsonl"
@@ -47,6 +49,8 @@ FRAMES_DIR = "frames"
 TEMPORAL_DIR = "temporal"
 CROPS_DIR = "crops"
 ANNOTATED_FRAMES_DIR = "annotated_frames"
+ANNOTATED_VIDEO_FILE = "annotated.mp4"
+REPORTS_DIR = "reports"
 
 
 def utcnow_iso() -> str:
@@ -96,7 +100,7 @@ class RunContext:
     """Everything a stage may touch: the run directory and the config."""
 
     def __init__(self, run_dir: Path, resolved, brands, log: StageLogger, *, force: bool = False,
-                 repo_root: Path | None = None):
+                 repo_root: Path | None = None, options: dict | None = None):
         self.run_dir = Path(run_dir)
         self.resolved = resolved
         self.cfg: PipelineCfg = resolved.pipeline
@@ -105,6 +109,9 @@ class RunContext:
         self.brands = brands
         self.log = log
         self.force = force
+        # Per-invocation switches that are not configuration (they change which work a stage does
+        # on this call, never what its output means), e.g. ``vlm_pass`` for ``--blind-only``.
+        self.options: dict = dict(options or {})
         self.repo_root = Path(repo_root) if repo_root else Path.cwd()
         self._manifest: dict | None = None
         self._sampled: list[dict] | None = None
@@ -265,6 +272,53 @@ class Stage(abc.ABC):
 
     def __repr__(self) -> str:  # pragma: no cover - cosmetic
         return f"<Stage {self.name} ({self.device})>"
+
+
+def detected_frames(ctx: "RunContext", source: str) -> set[int]:
+    """Frames ``source`` (``gdino``/``yolo``) has finished, including frames where it found nothing.
+
+    A frame with zero boxes writes no line to ``raw_detections.jsonl``, so the lines alone cannot
+    say whether it was processed; ``detected_frames.json`` records it. Run directories written
+    before that file existed fall back to "frames carrying at least one line of this source".
+    """
+    marked: set[int] = set()
+    if ctx.path(DETECTED_FRAMES_FILE).exists():
+        marked = {int(f) for f in ctx.read_json(DETECTED_FRAMES_FILE).get(source, [])}
+    with_lines = {r["frame_idx"] for r in ctx.read_jsonl(RAW_DETECTIONS_FILE) if r.get("source") == source}
+    return marked | with_lines
+
+
+def mark_frame_detected(ctx: "RunContext", source: str, frame_idx: int) -> None:
+    data = ctx.read_json(DETECTED_FRAMES_FILE) if ctx.path(DETECTED_FRAMES_FILE).exists() else {}
+    done = set(data.get(source, []))
+    done.add(int(frame_idx))
+    data[source] = sorted(done)
+    ctx.write_json(DETECTED_FRAMES_FILE, data)
+
+
+def prepare_detection_source(ctx: "RunContext", source: str) -> tuple[set[int], int]:
+    """Shared resume logic of the two detector stages. Returns ``(done_frames, next_raw_det_id)``.
+
+    Under ``--force`` this source's earlier lines and completion marks are dropped first (the
+    other detector's lines and the file header are kept), so a forced re-run replaces its boxes
+    instead of appending a second copy of them.
+    """
+    path = ctx.path(RAW_DETECTIONS_FILE)
+    header, rows = ctx.read_jsonl(RAW_DETECTIONS_FILE, with_header=True)
+    if ctx.force:
+        kept = [r for r in rows if r.get("source") != source]
+        if len(kept) != len(rows):
+            ctx.write_jsonl(RAW_DETECTIONS_FILE, kept, header=header)
+        if ctx.path(DETECTED_FRAMES_FILE).exists():
+            data = ctx.read_json(DETECTED_FRAMES_FILE)
+            data.pop(source, None)
+            ctx.write_json(DETECTED_FRAMES_FILE, data)
+        done: set[int] = set()
+    else:
+        done = detected_frames(ctx, source)
+    next_id = max([r["raw_det_id"] for r in rows], default=-1) + 1
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return done, next_id
 
 
 def iter_grouped_by_frame(rows: Iterable[dict]) -> Iterator[tuple[int, list[dict]]]:

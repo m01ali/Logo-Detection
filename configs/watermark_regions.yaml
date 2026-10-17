@@ -1,0 +1,17 @@
+# Keyed watermark-region store (T50, spec docs/12 + 04). A per-video config
+# references one key through `watermark_regions_ref`; there is no lookup by
+# channel and no reuse logic. Regions are normalised [x1, y1, x2, y2]
+# fractions of frame width/height (they survive the three fixed-images size
+# families); several regions per key are allowed. `channel_brands` is the
+# known_channel_brands set Rule 5 uses for videos that reference the key.
+#
+# The loader (logo_pipeline/watermark_regions.py) rejects unknown keys,
+# coordinates outside [0, 1] and boxes with x1 >= x2 or y1 >= y2.
+
+rai_sport_default:
+  # Measured on video_1.mp4 (960x560) frames 0 and 1500, where the
+  # "Rai Sport HD" bug sits top-left at pixels x 45-160, y 33-70 in both.
+  # watermark.margin (0.02) is added around it at overlap time.
+  channel_brands: [rai sport, rai]
+  regions:
+    - [0.047, 0.059, 0.167, 0.125]

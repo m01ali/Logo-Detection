@@ -8,6 +8,11 @@ Run:
     streamlit run app/review_ui.py -- --csv path/to/vlm_predictions.csv
 
 Or set the CSV path directly in the sidebar.
+
+M3 (spec docs/13 T73/T75): loads a pipeline run's rows.csv as is, adds the router
+queue filters and presets, the router and Rule 5 evidence panels, the loose and
+annotated-frame images, per-decision counts, and "Accept into FAISS" with a
+provenance record. Every new column is optional, so M2 CSVs still load.
 """
 
 import argparse
@@ -19,6 +24,11 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 from PIL import Image
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+from logo_pipeline import review_support as rs  # noqa: E402
 
 # ── Page config ──────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -62,8 +72,8 @@ def _resolve_path(path: str | None, base_dir: Path | None) -> Path | None:
       3) joined to cwd.
     Returns the first variant that exists, or None.
     """
-    if not path:
-        return None
+    if not isinstance(path, (str, Path)) or not str(path).strip():
+        return None          # empty CSV cells load as NaN (a truthy float)
     p = Path(path)
     if p.is_absolute() and p.exists():
         return p
@@ -84,6 +94,17 @@ def _safe_img(path: str | None, base_dir: Path | None = None) -> Image.Image | N
         return Image.open(resolved).convert("RGB")
     except Exception:
         return None
+
+
+@st.cache_resource
+def _faiss_db(index_dir: str):
+    """Loaded on first commit only (CLIP on CPU is fine for single crops)."""
+    import torch
+
+    from models.faiss_db import LogoDatabaseNew
+    d = Path(index_dir)
+    return LogoDatabaseNew(index_path=str(d / "logo_index.faiss"), metadata_path=str(d / "metadata.json"),
+                           batch_size=8, device="cuda" if torch.cuda.is_available() else "cpu")
 
 
 def _parse_list(val) -> list:
@@ -154,8 +175,41 @@ if "df" not in st.session_state or st.session_state.get("_cache_key") != _cache_
                 _df[_col] = _df[_col].astype(str).str.replace(remap_from, remap_to, regex=False)
     st.session_state.df = _df
     st.session_state._cache_key = _cache_key
+    for _k in ("f_decision", "f_reason", "page_idx"):
+        st.session_state.pop(_k, None)
 
 df: pd.DataFrame = st.session_state.df
+
+
+@st.cache_data
+def _channel_brands() -> set:
+    return rs.load_channel_brands(_REPO_ROOT)
+
+
+CHANNEL_BRANDS = _channel_brands()
+
+# ── Queue (M3 T73) ────────────────────────────────────────────────────────────
+def _preset(decisions: list[str]) -> None:
+    st.session_state.f_decision = decisions
+    st.session_state.f_reason = []
+    st.session_state.page_idx = 0
+
+
+filter_decision = filter_reason = None
+if rs.has(df, "router_decision"):
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Queue")
+    _opts = rs.decision_options(df)
+    if "f_decision" not in st.session_state:
+        st.session_state.f_decision = rs.default_decisions(df)
+    _p1, _p2 = st.sidebar.columns(2)
+    # A preset may only select decisions present in this CSV (a multiselect rejects unknown values).
+    _p1.button("REVIEW queue", on_click=_preset, args=([d for d in ["REVIEW"] if d in _opts],),
+               key="preset_review")
+    _p2.button("UNKNOWN_LOGO queue", on_click=_preset, args=([d for d in ["UNKNOWN_LOGO"] if d in _opts],),
+               key="preset_unknown")
+    filter_decision = st.sidebar.multiselect("Router decision", options=_opts, key="f_decision")
+    filter_reason = st.sidebar.multiselect("Reason code (empty = all)", options=rs.reason_options(df), key="f_reason")
 
 # ── Filters ───────────────────────────────────────────────────────────────────
 st.sidebar.markdown("---")
@@ -168,8 +222,8 @@ filter_label = st.sidebar.multiselect(
 )
 filter_is_logo = st.sidebar.multiselect(
     "VLM prediction",
-    options=["logo", "partial_logo", "not_logo"],
-    default=["logo", "partial_logo", "not_logo"],
+    options=["logo", "partial_logo", "not_logo", rs.UNPARSED],
+    default=["logo", "partial_logo", "not_logo", rs.UNPARSED],
 )
 min_conf = st.sidebar.slider("Min confidence (brand)", 0, 100, 0)
 max_conf = st.sidebar.slider("Max confidence (brand)", 0, 100, 100)
@@ -177,25 +231,8 @@ min_logo_prob = st.sidebar.slider("Min logo probability", 0, 100, 0)
 max_logo_prob = st.sidebar.slider("Max logo probability", 0, 100, 100)
 
 # ── Build filtered view ───────────────────────────────────────────────────────
-mask = pd.Series([True] * len(df), index=df.index)
-
-if filter_is_logo:
-    mask &= df["is_logo"].isin(filter_is_logo)
-
-if filter_label:
-    if "unlabelled" in filter_label:
-        unlabelled_mask = df["label"].isna() | (df["label"] == "")
-        labelled_mask   = df["label"].isin([l for l in filter_label if l != "unlabelled"])
-        mask &= unlabelled_mask | labelled_mask
-    else:
-        mask &= df["label"].isin(filter_label)
-
-conf_col = pd.to_numeric(df["confidence"], errors="coerce")
-mask &= conf_col.fillna(50).between(min_conf, max_conf)
-
-if "logo_probability" in df.columns:
-    logo_prob_col = pd.to_numeric(df["logo_probability"], errors="coerce")
-    mask &= logo_prob_col.fillna(50).between(min_logo_prob, max_logo_prob)
+mask = rs.filter_mask(df, decisions=filter_decision, reason_codes=filter_reason, labels=filter_label,
+                      is_logo=filter_is_logo, conf=(min_conf, max_conf), logo_prob=(min_logo_prob, max_logo_prob))
 
 view = df[mask].reset_index(drop=False)   # keep original index in "index" column
 
@@ -224,6 +261,40 @@ c4.metric("Wrong brand", wb)
 st.sidebar.metric("Precision", f"{precision:.1%}")
 st.sidebar.metric("Recall",    f"{recall:.1%}")
 st.sidebar.metric("F1",        f"{f1:.3f}")
+
+if rs.has(df, "router_decision"):
+    with st.sidebar.expander("Rows per decision / reason code", expanded=False):
+        _dec_counts, _rc_counts = rs.counts_table(df)
+        st.dataframe(_dec_counts, hide_index=True, use_container_width=True)
+        st.dataframe(_rc_counts, hide_index=True, use_container_width=True)
+
+# ── Accept into FAISS: pending batch (M3 T75) ─────────────────────────────────
+if "pending_enrol" not in st.session_state:
+    st.session_state.pending_enrol = []
+if rs.has(df, "router_decision"):
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Accept into FAISS")
+    enrol_accept_rows = st.sidebar.checkbox("Also allow ACCEPT rows", value=False, key="enrol_accept_rows")
+    faiss_dir = st.sidebar.text_input("FAISS directory", value=str(_REPO_ROOT / "FAISS"), key="faiss_dir",
+                                      help="Use a copy of the index for demos; the index is saved once per commit.")
+    _pending = st.session_state.pending_enrol
+    st.sidebar.caption(f"{len(_pending)} pending")
+    for _item in _pending:
+        st.sidebar.caption(f"det_id {rs.val(_item['row'], 'det_id')} → `{_item['brand']}`")
+    if _pending and st.sidebar.button("Commit to index", key="commit_enrol"):
+        try:
+            _db = _faiss_db(faiss_dir)
+            _before = int(_db.index.ntotal)
+            _indices = rs.commit_enrolments(_db, _pending, lambda p: _resolve_path(p, CSV_DIR))
+            for _item in _pending:
+                st.session_state.df.at[_item["orig_idx"], "enrolled_to_faiss"] = True
+            save_csv(st.session_state.df, csv_path)
+            st.session_state.pending_enrol = []
+            st.sidebar.success(f"Enrolled {len(_indices)} crop(s); index {_before} → {int(_db.index.ntotal)} vectors.")
+        except Exception as exc:  # pragma: no cover - surfaced in the UI
+            st.sidebar.error(f"Commit failed: {exc}")
+else:
+    enrol_accept_rows = False
 
 # ── Save button ───────────────────────────────────────────────────────────────
 if st.sidebar.button("💾 Save labels"):
@@ -375,32 +446,23 @@ with st.expander("Signal reference — what each signal means", expanded=False):
 st.markdown(f"### Detection `det_id={det_id}`  —  t={timecode}s  —  det_score={det_score}")
 
 # ── Image columns ─────────────────────────────────────────────────────────────
-img_col1, img_col2, img_col3 = st.columns(3)
+_images = [("Tight crop (selected)", row.get("crop_path"))]
+_loose = rs.val(row, "loose_crop_path")
+if _loose and _loose != rs.val(row, "crop_path"):
+    _images.append(("Loose crop (before refinement)", _loose))
+_images.append(("Enlarged crop", row.get("enlarged_crop_path")))
+_images.append((f"Full frame  (t={timecode}s)", row.get("frame_path")))
+if rs.val(row, "annotated_frame_path"):
+    _images.append(("Annotated frame", rs.val(row, "annotated_frame_path")))
 
-crop_img     = _safe_img(row.get("crop_path"),          CSV_DIR)
-enlarged_img = _safe_img(row.get("enlarged_crop_path"), CSV_DIR)
-frame_img    = _safe_img(row.get("frame_path"),         CSV_DIR)
-
-with img_col1:
-    st.caption("Tight crop")
-    if crop_img:
-        st.image(crop_img, use_container_width=True)
-    else:
-        st.warning("crop not found")
-
-with img_col2:
-    st.caption("Enlarged crop")
-    if enlarged_img:
-        st.image(enlarged_img, use_container_width=True)
-    else:
-        st.warning("enlarged crop not found")
-
-with img_col3:
-    st.caption(f"Full frame  (t={timecode}s)")
-    if frame_img:
-        st.image(frame_img, use_container_width=True)
-    else:
-        st.warning("frame not found")
+for _col, (_caption, _path) in zip(st.columns(len(_images)), _images):
+    with _col:
+        st.caption(_caption)
+        _img = _safe_img(_path, CSV_DIR)
+        if _img:
+            st.image(_img, use_container_width=True)
+        else:
+            st.warning("image not found")
 
 st.markdown("---")
 
@@ -440,6 +502,28 @@ with pred_col:
         st.markdown(f"> {reasoning}")
     if signals:
         st.markdown("**Signals used:** " + " · ".join(f"`{s}`" for s in signals))
+
+    if rs.has(df, "router_decision"):
+        st.subheader("Router")
+        _dec = rs.val(row, "router_decision", rs.UNROUTED)
+        _rule = rs.val(row, "router_rule")
+        st.markdown(
+            f"**Decision:** <span style='color:{rs.DECISION_COLOURS.get(_dec, '#aaaaaa')};font-weight:bold'>"
+            f"{_dec}</span>&nbsp;&nbsp; **Reason:** `{rs.val(row, 'reason_code', '—')}`&nbsp;&nbsp; "
+            f"**Rule:** {int(_rule) if _rule is not None else 'default'}",
+            unsafe_allow_html=True,
+        )
+        _pre = rs.as_list(rs.val(row, "rules_matched_preempted"))
+        st.markdown(
+            f"**Pre-empted rules:** {', '.join(str(r) for r in _pre) or 'none'}&nbsp;&nbsp; "
+            f"**Brand evidence:** `{rs.val(row, 'brand_evidence', '—')}`&nbsp;&nbsp; "
+            f"**Canonical brand:** `{rs.val(row, 'canonical_brand', '—')}`&nbsp;&nbsp; "
+            f"**Refinement:** `{rs.val(row, 'refinement_status', '—')}`"
+        )
+        if rs.is_rule5_row(row, CHANNEL_BRANDS):
+            st.markdown("**Rule 5 evidence** (channel brand)")
+            st.dataframe(pd.DataFrame([{f: rs.val(row, f) for f in rs.RULE5_FIELDS}]), hide_index=True,
+                         use_container_width=True)
 
 with hint_col:
     st.subheader("Context Hints")
@@ -487,6 +571,28 @@ for col, (btn_text, btn_val) in zip(label_cols, label_map.items()):
 
 if current_label:
     st.success(f"Current label: **{current_label}**")
+if rs.val(row, "router_decision") == "DEDUPED":
+    st.warning("This row is DEDUPED: the router kept another box of the same brand in this frame "
+               f"(cluster {rs.val(row, 'dedup_cluster_id', '?')}). Labels here are allowed but flagged in T62.")
+
+# ── Accept into FAISS (M3 T75) ───────────────────────────────────────────────
+if rs.is_enrolable(row, include_accept=enrol_accept_rows):
+    st.markdown("---")
+    st.subheader("Accept into FAISS")
+    _queued = {it["orig_idx"] for it in st.session_state.pending_enrol}
+    if bool(rs.val(row, "enrolled_to_faiss", False)):
+        st.info("Already enrolled into FAISS.")
+    elif orig_idx in _queued:
+        st.info("Queued; commit from the sidebar.")
+    else:
+        _brand = st.text_input("Brand to enrol", value=rs.default_enrol_brand(row), key=f"enrol_brand_{orig_idx}")
+        if st.checkbox("Add to canonical list too", key=f"enrol_list_{orig_idx}"):
+            st.info("No code path writes the brand list. Follow the add-a-brand procedure (spec docs/06): "
+                    f"`python -m logo_pipeline brands add \"{_brand}\" --aliases ...`, then commit the YAML.")
+        if st.button("Accept into FAISS", key=f"enrol_btn_{orig_idx}", disabled=not _brand.strip()):
+            st.session_state.pending_enrol.append({"orig_idx": orig_idx, "brand": _brand.strip(),
+                                                   "row": {k: row.get(k) for k in df.columns}})
+            st.rerun()
 
 # ── Thumbnail strip for the current frame ─────────────────────────────────────
 with st.expander("All detections in this frame", expanded=False):

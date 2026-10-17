@@ -158,6 +158,7 @@ All paths are relative to the CSV's directory (T73).
 | Field | Type | Stage | M2 | Notes |
 |-------|------|-------|----|-------|
 | `config_hash` | str | ingest | | |
+| `git_sha` | str\|null | ingest | | Code revision; added for the T77 check "git SHA ... on every row" (`14`, `21`). |
 | `experiment` | str | ingest | M2 | Run label; defaults to `run_id`. |
 | `brand_mode` | str | vlm | M2 | `open` |
 | `enabled_signals` | list[str] | vlm | M2 | Signals in the hinted prompt. |

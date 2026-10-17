@@ -27,7 +27,7 @@ CONFIG_SCHEMA_VERSION = 1
 
 DEFAULT_STAGES: tuple[str, ...] = (
     "ingest", "shots", "sampling", "detect_gdino", "detect_yolo", "merge", "refine", "ocr",
-    "faiss_query", "audio", "vlm", "canonicalise", "watermark", "router_input", "router", "output",
+    "faiss_query", "audio", "vlm", "vlm_scoring", "canonicalise", "watermark", "router_input", "router", "output",
 )
 
 # Keys that do not influence any output and are therefore excluded from the
@@ -523,6 +523,8 @@ class VideoCfg:
     channel: str | None = None
     channel_brand: str | None = None
     watermark_regions_ref: str | None = None
+    process_all_frames: bool = False     # frames mode: sample every ordinal (route three, 17 T66)
+    frame_ordinals: list[int] | None = None   # frames mode: sample exactly these (the labelled ones)
     overrides: dict = field(default_factory=dict)
 
 
@@ -772,6 +774,8 @@ def resolve_config(
     validate_pipeline_cfg(cfg)
     if cfg.ingest.mode == "video" and not video.source:
         raise ConfigError("video.source is required when ingest.mode is 'video'")
+    if (video.process_all_frames or video.frame_ordinals) and cfg.ingest.mode != "frames":
+        raise ConfigError("video.process_all_frames / frame_ordinals apply to ingest.mode 'frames' only")
 
     effective: dict[str, Any] = {}
     if cfg.ingest.mode == "frames" and cfg.shots.detector != "content":

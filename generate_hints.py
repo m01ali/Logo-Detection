@@ -107,6 +107,8 @@ CANONICAL_SIGNALS = [
     "faiss_matches",
     "ocr_text",
 ]
+# The signals a blind call may render (M3 T33): images only, never a text hint.
+IMAGE_SIGNALS = ["tight_crop", "enlarged_crop", "full_frame", "temporal_context"]
 
 # Synonyms observed in VLM outputs → canonical name (used at parse time).
 SIGNAL_SYNONYMS = {
@@ -392,17 +394,22 @@ def build_final_instruction(
     candidates: list[str],
     brand_mode: str,
     channel_watermark: str,
+    blind: bool = False,
 ) -> str:
-    """The question + output schema shown to the VLM after all signals."""
+    """The question + output schema shown to the VLM after all signals.
+
+    ``blind`` (M3 T33/T67) renders the same question for a call that saw images only: no
+    reference to hints, no channel-watermark line, and a signal vocabulary of image signals.
+    """
     watermark_note = ""
-    if channel_watermark:
+    if channel_watermark and not blind:
         watermark_note = (
             f"Known context: the channel watermark in this video is \"{channel_watermark}\". "
             f"If this region is that channel watermark, assign the brand \"{channel_watermark}\". "
             "Attribute all remaining logos to advertisers or sponsors, not to the channel.\n\n"
         )
 
-    if brand_mode == "closed":
+    if brand_mode == "closed" and not blind:
         if candidates:
             cand_str = ", ".join(f'"{c}"' for c in candidates)
             brand_rule = (
@@ -416,6 +423,12 @@ def build_final_instruction(
                 "(ii)  No brand candidates are available for this detection. "
                 'If it is a logo or partial logo, output exactly "UNKNOWN" as the brand.\n'
             )
+    elif blind:
+        brand_rule = (
+            "(ii)  If it is a logo or partial logo, what is the brand name? "
+            'If you cannot identify the brand, or it is a logo of a brand you do not '
+            'recognise, output exactly "UNKNOWN".\n'
+        )
     else:
         brand_rule = (
             "(ii)  If it is a logo or partial logo, what is the brand name? "
@@ -425,11 +438,12 @@ def build_final_instruction(
             'recognise, output exactly "UNKNOWN".\n'
         )
 
-    signal_vocab = ", ".join(f'"{s}"' for s in CANONICAL_SIGNALS)
+    signal_vocab = ", ".join(f'"{s}"' for s in (IMAGE_SIGNALS if blind else CANONICAL_SIGNALS))
+    basis = "the images shown above" if blind else "the signals shown above"
 
     return (
         "\n---\n"
-        "You are an expert logo analyst. Base your answer ONLY on the signals shown above.\n\n"
+        f"You are an expert logo analyst. Base your answer ONLY on {basis}.\n\n"
         + watermark_note +
         "A LOGO is a distinctive graphic mark, emblem, wordmark or symbol that identifies "
         "a brand, company, product, or sponsoring organisation.\n"
@@ -478,9 +492,13 @@ def _build_vlm_content(
     signals: set[str],
     brand_mode: str,
     channel_watermark: str,
+    blind: bool = False,
 ) -> list[dict]:
     """
     Assemble the multi-image content list for a single Qwen VLM call.
+
+    ``blind`` (M3 T33) drops every text-hint section and the watermark line whatever
+    ``signals`` says, and asks the blind form of the final question.
 
     Section headers use the CANONICAL_SIGNALS names so the model can echo
     them back verbatim in `signals_used`. Disabled signals are omitted:
@@ -489,6 +507,10 @@ def _build_vlm_content(
       Final question (open-set or closed-set)
     """
     content: list[dict] = []
+    if blind:
+        brand_mode = "open" if brand_mode == "closed" else brand_mode   # a closed list is built from hints
+        signals = set(signals) & set(IMAGE_SIGNALS)
+        channel_watermark = ""
 
     # Signal — tight crop
     if "tight_crop" in signals and crop_img is not None:
@@ -557,7 +579,7 @@ def _build_vlm_content(
     candidates = build_closed_set_candidates(audio_brands, faiss_hits, signals, channel_watermark)
     content.append({
         "type": "text",
-        "text": build_final_instruction(candidates, brand_mode, channel_watermark),
+        "text": build_final_instruction(candidates, brand_mode, channel_watermark, blind=blind),
     })
 
     return content

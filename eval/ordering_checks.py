@@ -53,11 +53,17 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--run", required=True, help="run directory containing firing_log.jsonl")
     args = ap.parse_args(argv)
-    results = check_firing_log(read_firing_log(Path(args.run)))
+    run_dir = Path(args.run)
+    results = check_firing_log(read_firing_log(run_dir))
     failed = False
+    lines = [f"# Ordering checks (T65) — `{run_dir}`", "", "| check | result | offending det_ids |", "|---|---|---|"]
     for name, dets in results.items():
         print(f"{'FAIL' if dets else 'PASS'}  {name}" + (f"  det_ids={dets}" if dets else ""))
+        lines.append(f"| {name} | {'FAIL' if dets else 'pass'} | {', '.join(map(str, dets)) or '—'} |")
         failed = failed or bool(dets)
+    reports = run_dir / "reports"
+    reports.mkdir(parents=True, exist_ok=True)
+    (reports / "ordering_checks.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     return 1 if failed else 0
 
 

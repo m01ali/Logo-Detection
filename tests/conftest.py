@@ -4,8 +4,16 @@ importable regardless of the working directory pytest is invoked from."""
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
+
+# faiss-cpu and torch each ship an OpenMP runtime; on macOS loading both in one
+# process aborts (OMP Error #15; app/streamlit_faiss_app.py sets the same switch),
+# and with both loaded a multithreaded faiss search can segfault. One OpenMP thread
+# in the test process avoids both; the tiny test indexes do not need more.
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+os.environ.setdefault("OMP_NUM_THREADS", "1")
 
 import pytest
 

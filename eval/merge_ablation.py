@@ -137,10 +137,10 @@ def write_csv(path: Path, stats: dict) -> None:
                 w.writerow([name, b["bin_lo"], b["bin_hi"], b["count"]])
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--run", required=True, help="Run directory, e.g. runs/<video_id>/<run_id>")
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
 
     run_dir = Path(args.run)
     header, rows = read_merge_log(run_dir)

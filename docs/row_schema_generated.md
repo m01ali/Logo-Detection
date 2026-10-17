@@ -161,13 +161,14 @@ One row per detection that survives the merge. Column order in `rows.csv` is exa
 | Field | Type | M2 | Notes |
 |-------|------|----|-------|
 | `config_hash` | str |  |  |
+| `git_sha` | Optional[str] |  | Code revision of the run (run_manifest.json); 14 T77, 21 provenance. |
 | `experiment` | str | ★ | Run label; defaults to run_id. |
 | `brand_mode` | str | ★ | open |
 | `enabled_signals` | list[str] | ★ | Signals in the hinted prompt. |
 | `label` | Optional[str] | ★ | TP, FP, FN, wrong_brand, null. Written by the review screen. |
 | `enrolled_to_faiss` | bool |  | Set by T75. |
 
-**Total fields:** 103
+**Total fields:** 104
 
 ## CSV column order
 
@@ -270,6 +271,7 @@ dedup_cluster_id
 dedup_representative
 rules_matched_preempted
 config_hash
+git_sha
 experiment
 brand_mode
 enabled_signals

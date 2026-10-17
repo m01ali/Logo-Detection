@@ -517,6 +517,11 @@ class LogoDatabaseNew:
         faiss.write_index(index, self.index_path)
         with open(self.metadata_path, 'w') as f:
             json.dump(self.metadata, f)
+        # M3 T55: logo_pipeline.faiss_store queues provenance records on the instance and
+        # installs this hook, so they are written only once the vectors they name are saved.
+        after_save = getattr(self, "_after_save", None)
+        if after_save is not None:
+            after_save(self)
 
     def __len__(self):
         return len(self.metadata)

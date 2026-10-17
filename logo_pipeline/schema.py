@@ -201,6 +201,7 @@ class Row:
 
     # -- L. Run provenance and review ------------------------------------------------------------
     config_hash: str = _f("L", default="")
+    git_sha: Optional[str] = _f("L", "Code revision of the run (run_manifest.json); 14 T77, 21 provenance.")
     experiment: str = _f("L", "Run label; defaults to run_id.", m2=True, default="")
     brand_mode: str = _f("L", "open", m2=True, default="open")
     enabled_signals: list[str] = _f("L", "Signals in the hinted prompt.", m2=True, default_factory=list)

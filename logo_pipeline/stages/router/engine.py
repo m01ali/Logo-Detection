@@ -14,7 +14,8 @@ from __future__ import annotations
 
 from collections import Counter
 
-from ..base import FIRING_LOG_FILE, ROUTER_INPUT_FILE, ROUTER_OUTPUT_FILE, RunContext, Stage, StageResult
+from ..base import (FIRING_LOG_FILE, ROUTER_INPUT_FILE, ROUTER_OUTPUT_FILE, VLM_SCORES_FILE, RunContext, Stage,
+                    StageResult)
 from .dedup import DedupEntry, dedup_frame
 from .inputs import MissingRouterInput, RouterInput, known_channel_brands
 from .reason_codes import REVIEW, ReasonCode
@@ -155,7 +156,11 @@ class RouterStage(Stage):
     def run(self, ctx: RunContext) -> StageResult:
         rows = ctx.read_jsonl(ROUTER_INPUT_FILE)
         cfg = ctx.cfg
-        channels = known_channel_brands(ctx.repo_root, ctx.video, ctx.brands)
+        if cfg.router.enabled and cfg.router.not_logo_confidence_source == "scored" \
+                and not ctx.path(VLM_SCORES_FILE).exists():
+            raise MissingRouterInput("not_logo_confidence", "router.not_logo_confidence_source is 'scored' "
+                                     f"but {VLM_SCORES_FILE} does not exist (run the vlm_scoring stage)")
+        channels = known_channel_brands(ctx.repo_root, ctx.video, ctx.brands, cfg.watermark)
         outputs, firing = route_rows(rows, cfg, ctx.brands, channels)
 
         header = ctx.header("router", not_logo_confidence_source=cfg.router.not_logo_confidence_source,
