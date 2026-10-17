@@ -1,0 +1,14 @@
+# The T77 checkpoint run of video_1 (spec docs/14, option A): identical to
+# video_1.yaml except that the blind VLM pass is off ("blind pass off at this
+# point, scoring off, Rules 7/8/5-REJECT off" — scoring and those rules are
+# already off in configs/pipeline.yaml). Same video_id, so it uses the same
+# run directory; MM9 later adds the blind pass to that directory with
+# video_1.yaml and `run --blind-only` (15 T33).
+video_id: video_1
+source: video_1.mp4
+channel: rai_sport
+channel_brand: rai sport
+watermark_regions_ref: rai_sport_default
+overrides:
+  vlm:
+    blind_pass: false
