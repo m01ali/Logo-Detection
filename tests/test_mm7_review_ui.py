@@ -144,3 +144,11 @@ def test_accept_is_offered_only_on_review_and_unknown_rows(tmp_path):
     assert not [b for b in at.button if (b.key or "").startswith("enrol_btn_")]
     at.checkbox(key="enrol_accept_rows").check().run()      # the [ASSUMPTION] toggle for ACCEPT rows
     assert [b for b in at.button if (b.key or "").startswith("enrol_btn_")]
+
+
+def test_a_folder_in_the_csv_box_warns_instead_of_crashing(tmp_path):
+    at = AppTest.from_file(APP, default_timeout=60)
+    at.run()
+    at.text_input(key="csv_input").set_value(str(tmp_path)).run()
+    assert not at.exception
+    assert any("is a folder" in str(w.value) for w in at.warning)

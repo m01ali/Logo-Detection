@@ -143,8 +143,13 @@ csv_path = st.sidebar.text_input(
     key="csv_input",
 )
 
-if not csv_path or not Path(csv_path).exists():
-    st.info("Enter a valid path to `vlm_predictions.csv` in the sidebar to begin.")
+if not csv_path or not Path(csv_path).is_file():
+    if csv_path and Path(csv_path).is_dir():
+        st.warning(f"`{csv_path}` is a folder. The CSV path needs the CSV file itself, e.g. "
+                   "`runs/<video_id>/<run_id>/rows.csv` (a FAISS folder goes in the sidebar's "
+                   "**FAISS directory** field, shown once a routed rows.csv is loaded).")
+    else:
+        st.info("Enter a valid path to `rows.csv` (or an M2 `vlm_predictions.csv`) in the sidebar to begin.")
     st.stop()
 
 # Directory containing the CSV — relative image paths in the CSV are resolved
