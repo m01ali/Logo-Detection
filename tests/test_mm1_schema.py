@@ -37,6 +37,6 @@ def test_export_schema_doc_runs_and_covers_every_field(tmp_path, repo_root):
     result = subprocess.run([sys.executable, str(repo_root / "scripts" / "export_schema_doc.py"), "--out", str(out)],
                              capture_output=True, text=True, cwd=repo_root)
     assert result.returncode == 0, result.stderr
-    text = out.read_text()
+    text = out.read_text(encoding="utf-8")
     for f in fields(Row):
         assert f"`{f.name}`" in text, f"{f.name} missing from generated schema doc"

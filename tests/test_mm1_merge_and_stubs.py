@@ -79,7 +79,7 @@ def test_merge_det_id_order_is_frame_then_raw_det_id(tmp_path, repo_root):
 
 
 def test_no_legacy_filter_constants_in_merge_stage():
-    src = Path("logo_pipeline/stages/merge.py").read_text()
+    src = Path("logo_pipeline/stages/merge.py").read_text(encoding="utf-8")
     assert "500" not in src
     assert re_no_bare_half(src)
 
@@ -184,7 +184,7 @@ def test_jsonl_header_written_once_and_round_trips(tmp_path, repo_root):
         {"raw_det_id": 0, "frame_idx": 0, "source": "gdino", "box_xyxy": [1.0, 2.0, 3.0, 4.0],
          "score": 0.5, "label": "x", "class_conf": None, "frame_width": 10, "frame_height": 10},
     ], header=header)
-    text = (ctx.run_dir / "raw_detections.jsonl").read_text()
+    text = (ctx.run_dir / "raw_detections.jsonl").read_text(encoding="utf-8")
     lines = [l for l in text.splitlines() if l.strip()]
     assert len(lines) == 2
     import json
@@ -205,5 +205,5 @@ def test_jsonl_appender_resumes_skipping_done_ids(tmp_path):
     with JsonlAppender(path, header, key="det_id") as app2:
         assert app2.done == {0, 1}
         app2.write({"det_id": 2, "v": "c"})
-    lines = [l for l in path.read_text().splitlines() if l.strip()]
+    lines = [l for l in path.read_text(encoding="utf-8").splitlines() if l.strip()]
     assert len(lines) == 4  # 1 header + 3 records

@@ -152,7 +152,7 @@ def note(run_dir: Path) -> str:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "eval"))
     from acceptance_evidence import caveats
     manifest = json.loads((run_dir / "run_manifest.json").read_text(encoding="utf-8"))
-    status = json.loads((run_dir / "stage_status.json").read_text()) if (run_dir / "stage_status.json").exists() else {}
+    status = json.loads((run_dir / "stage_status.json").read_text(encoding="utf-8")) if (run_dir / "stage_status.json").exists() else {}
     has_blind = (run_dir / "vlm" / "blind.jsonl").exists()
     has_scores = (run_dir / "vlm" / "scores.jsonl").exists()
     router = (status.get("router") or {}).get("counts", {})

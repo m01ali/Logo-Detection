@@ -31,7 +31,7 @@ def _eval_module(repo_root: Path, name: str):
 
 def render(ctx: RunContext, ablation: dict | None) -> str:
     import json
-    status = json.loads(ctx.path(STAGE_STATUS).read_text()) if ctx.path(STAGE_STATUS).exists() else {}
+    status = json.loads(ctx.path(STAGE_STATUS).read_text(encoding="utf-8")) if ctx.path(STAGE_STATUS).exists() else {}
     manifest = ctx.read_json(RUN_MANIFEST)
     sampled = ctx.read_json(SAMPLED_FRAMES_FILE) if ctx.path(SAMPLED_FRAMES_FILE).exists() else []
     counters = ctx.read_json(MERGE_COUNTERS_FILE) if ctx.path(MERGE_COUNTERS_FILE).exists() else {}

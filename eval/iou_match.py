@@ -67,7 +67,7 @@ def gold_from_roboflow(labels_dir: Path, names: list[str], video_id: str, frames
         if fi not in frames:
             continue
         w, h = frames[fi]
-        for line in lf.read_text().splitlines():
+        for line in lf.read_text(encoding="utf-8").splitlines():
             parts = line.split()
             if len(parts) == 5:
                 gold.setdefault(fi, []).append({"class_name": names[int(parts[0])],

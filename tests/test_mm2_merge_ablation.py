@@ -68,7 +68,7 @@ def test_main_writes_reports(tmp_path):
     assert rc == 0
     assert (run_dir / "reports" / "merge_distributions.md").exists()
     assert (run_dir / "reports" / "merge_distributions.csv").exists()
-    md = (run_dir / "reports" / "merge_distributions.md").read_text()
+    md = (run_dir / "reports" / "merge_distributions.md").read_text(encoding="utf-8")
     assert "Pairs evaluated: 2" in md
 
 

@@ -22,7 +22,7 @@ def labelled_ordinals(labels_dir: Path, video: str) -> list[int]:
     out = set()
     for f in Path(labels_dir).expanduser().glob(f"{video}_frame_*.txt"):
         m = _STEM.match(f.name)
-        if m and m.group(1) == video and f.read_text().strip():
+        if m and m.group(1) == video and f.read_text(encoding="utf-8").strip():
             out.add(int(m.group(2)))
     return sorted(out)
 

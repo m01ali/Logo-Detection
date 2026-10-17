@@ -92,10 +92,10 @@ def test_selfmatch_reports_counts_exclusions_and_the_t52_statement(tmp_path):
     index, vecs, metadata = _index()
     rows = sm.run(_gold(tmp_path), _Embedder(vecs, n_self=3), index, metadata, tmp_path / "rep", batch=8)
     assert len(rows) == 20                                         # the 8 px box was skipped
-    with open(tmp_path / "rep" / "faiss_selfmatch_excluded.csv") as fh:
+    with open(tmp_path / "rep" / "faiss_selfmatch_excluded.csv", encoding="utf-8") as fh:
         excluded = list(csv.DictReader(fh))
     assert [r["gold_id"] for r in excluded] == [rows[i]["gold_id"] for i in range(3)]
-    text = (tmp_path / "rep" / "faiss_selfmatch.md").read_text()
+    text = (tmp_path / "rep" / "faiss_selfmatch.md").read_text(encoding="utf-8")
     assert "Self-match (raw top-1 similarity ≥ 0.999): **3**" in text and "skipped" in text
     assert "3 crops self-match" in text and "a rebuild is not proposed" in text
     assert np.load(tmp_path / "rep" / "faiss_gold_embeddings.npy").shape == (20, 16)
@@ -105,7 +105,7 @@ def test_selfmatch_without_matches_says_the_benchmark_proceeds(tmp_path):
     index, vecs, metadata = _index()
     sm.run(_gold(tmp_path), _Embedder(vecs, n_self=0), index, metadata, tmp_path / "rep")
     assert "No crop self-matches; the benchmark proceeds on the existing index." in \
-        (tmp_path / "rep" / "faiss_selfmatch.md").read_text()
+        (tmp_path / "rep" / "faiss_selfmatch.md").read_text(encoding="utf-8")
 
 
 def test_selfmatch_refuses_misaligned_embeddings(tmp_path):

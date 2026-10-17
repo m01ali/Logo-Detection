@@ -86,7 +86,7 @@ def test_alias_matches_via_map_exact(brands_small_path: Path):
 
 def test_rewrite_hash_matches_reload(tmp_path: Path, brands_small_path: Path):
     dst = tmp_path / "brands.yaml"
-    dst.write_text(brands_small_path.read_text())
+    dst.write_text(brands_small_path.read_text(encoding="utf-8"))
     bl = rewrite_hash(dst)
     reloaded = load_brand_list(dst)
     assert bl.content_hash == reloaded.content_hash

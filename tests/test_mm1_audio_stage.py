@@ -82,4 +82,4 @@ def test_audio_real_compute_path_greedy_and_prompt_variant(tmp_path, repo_root):
     hints = ctx.read_json("audio/audio_hints.json")
     assert hints["brands"] == ["rai sport", "verisure"]
     assert hints["brand_prompt_variant"] == "task2_italian"
-    assert (ctx.run_dir / "audio" / "transcript.it.txt").read_text() == "ciao rai sport"
+    assert (ctx.run_dir / "audio" / "transcript.it.txt").read_text(encoding="utf-8") == "ciao rai sport"

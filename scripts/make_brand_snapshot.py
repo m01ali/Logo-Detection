@@ -65,7 +65,7 @@ def main() -> int:
     args = ap.parse_args()
 
     data_yaml_path = Path(args.data_yaml)
-    data = yaml.safe_load(data_yaml_path.read_text())
+    data = yaml.safe_load(data_yaml_path.read_text(encoding="utf-8"))
     names: list[str] = data["names"]
     if len(names) != len(set(names)):
         dupes = sorted({n for n in names if names.count(n) > 1})

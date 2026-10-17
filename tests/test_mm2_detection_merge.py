@@ -135,7 +135,7 @@ def test_small_and_large_boxes_both_survive_merge_stage(tmp_path, repo_root):
 
 def test_no_legacy_filter_constants_in_merge_stage():
     import re
-    src = Path("logo_pipeline/stages/merge.py").read_text()
+    src = Path("logo_pipeline/stages/merge.py").read_text(encoding="utf-8")
     assert "500" not in src
     assert not re.search(r"(?<![\w.])0\.5(?![\w.])", src)
 
@@ -351,7 +351,7 @@ def _m2_label_box_count(labels_dir: Path, frame_idx: int) -> int:
     label_path = labels_dir / f"video_3-trimmed_{frame_idx + 1}.txt"
     if not label_path.exists():
         return 0
-    return sum(1 for line in label_path.read_text().splitlines() if line.strip())
+    return sum(1 for line in label_path.read_text(encoding="utf-8").splitlines() if line.strip())
 
 
 @pytest.mark.skipif(not Path("video_3-trimmed.mp4").exists(), reason="video_3-trimmed.mp4 not present")

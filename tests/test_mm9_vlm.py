@@ -302,5 +302,5 @@ def test_vlm_cost_report(tmp_path, repo_root):
     ctx.write_jsonl("vlm/blind.jsonl", [{"det_id": i, "elapsed_s": 6.0} for i in range(4)])
     ctx.write_jsonl("merged_detections.jsonl", [{"det_id": i} for i in range(4)])
     assert vlm_cost.main(["--run", str(ctx.run_dir)]) == 0
-    text = (ctx.run_dir / "reports" / "vlm_cost.md").read_text()
+    text = (ctx.run_dir / "reports" / "vlm_cost.md").read_text(encoding="utf-8")
     assert "| hinted call | 4 | 10.00" in text and "| this run | 4 |" in text

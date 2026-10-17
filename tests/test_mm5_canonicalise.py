@@ -113,15 +113,15 @@ def test_stage_writes_derived_fields_and_report(tmp_path, repo_root):
     assert (rows[3]["canonical_brand"], rows[3]["canonical_match_mode"]) == ("UNKNOWN", "unknown")
     assert rows[3]["brand_from_audio"] is False and rows[3]["hinted_brand_in_faiss_hints"] is False
     assert all(r["brand_list_version"] == ctx.brands.version for r in rows.values())
-    assert "canonical_match_mode" in ctx.path("reports/canonicalisation.md").read_text()
+    assert "canonical_match_mode" in ctx.path("reports/canonicalisation.md").read_text(encoding="utf-8")
 
 
 def test_stage_is_deterministic(tmp_path, repo_root):
     ctx = _stage_ctx(tmp_path, repo_root, hinted=[{"is_logo": "logo", "brand": "Foo"}], audio=[])
     CanonicaliseStage().run(ctx)
-    first = ctx.path("canonical.jsonl").read_text()
+    first = ctx.path("canonical.jsonl").read_text(encoding="utf-8")
     CanonicaliseStage().run(ctx)
-    assert ctx.path("canonical.jsonl").read_text().split("\n", 1)[1] == first.split("\n", 1)[1]
+    assert ctx.path("canonical.jsonl").read_text(encoding="utf-8").split("\n", 1)[1] == first.split("\n", 1)[1]
 
 
 def test_llm_merge_is_off_by_default(tmp_path, repo_root):
@@ -148,5 +148,5 @@ def test_llm_merge_only_sees_unmatched_strings_and_is_logged(tmp_path, repo_root
     assert rows[0]["canonical_match_mode"] == "exact"
     assert (rows[2]["canonical_brand"], rows[2]["canonical_match_mode"]) == ("foo bar", "llm_merge")
     assert rows[1]["canonical_match_mode"] == "unmatched"
-    saved = json.loads(ctx.path("canonical_llm_merge.json").read_text())
+    saved = json.loads(ctx.path("canonical_llm_merge.json").read_text(encoding="utf-8"))
     assert saved["changed"] == {"foo baar": "foo bar"}

@@ -129,7 +129,7 @@ def test_accept_into_faiss_queues_then_commits_with_provenance(tmp_path):
         assert len(at.session_state["pending_enrol"]) == 1
         at.button(key="commit_enrol").click().run()
         assert not at.exception, at.exception
-    recs = [json.loads(ln) for ln in (faiss_dir / "enrolments.jsonl").read_text().splitlines()]
+    recs = [json.loads(ln) for ln in (faiss_dir / "enrolments.jsonl").read_text(encoding="utf-8").splitlines()]
     assert len(recs) == 1
     r = recs[0]
     assert (r["origin"], r["video_id"], r["run_id"], r["det_id"], r["brand"]) == (

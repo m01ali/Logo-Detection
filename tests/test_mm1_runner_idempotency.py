@@ -35,7 +35,7 @@ def test_ingest_stage_is_idempotent_and_force_reruns(tmp_path, repo_root):
         only_stages=["ingest"], run_id="idempotency-test",
     )
     ctx1 = run_pipeline(**kwargs)
-    status1 = (ctx1.run_dir / "stage_status.json").read_text()
+    status1 = (ctx1.run_dir / "stage_status.json").read_text(encoding="utf-8")
     mtime1 = (ctx1.run_dir / "run_manifest.json").stat().st_mtime
 
     ctx2 = run_pipeline(**kwargs)   # same config_hash, outputs already exist -> skipped

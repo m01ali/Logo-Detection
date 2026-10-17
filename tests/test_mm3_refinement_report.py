@@ -72,6 +72,6 @@ def test_main_writes_report_and_flags_high_fallback(tmp_path):
         with contextlib.redirect_stdout(buf):
             rc = main()
     assert rc == 0
-    md = (run_dir / "reports" / "refinement.md").read_text()
+    md = (run_dir / "reports" / "refinement.md").read_text(encoding="utf-8")
     assert "Total rows: 11" in md
     assert "exceeds 90%" in md   # 10/11 no_candidate -> ~90.9% fallback, clears the 90% flag threshold

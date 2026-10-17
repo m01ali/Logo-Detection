@@ -41,7 +41,7 @@ def load_stage_status(run_dir: Path) -> dict:
     p = run_dir / STAGE_STATUS
     if p.exists():
         import json
-        return json.loads(p.read_text())
+        return json.loads(p.read_text(encoding="utf-8"))
     return {}
 
 

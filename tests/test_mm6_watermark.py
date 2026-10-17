@@ -82,7 +82,7 @@ def test_bad_store_entries_are_rejected(bad):
 
 def test_reference_to_missing_key_is_rejected(tmp_path):
     store = tmp_path / "regions.yaml"
-    store.write_text("a: {channel_brands: [], regions: []}\n")
+    store.write_text("a: {channel_brands: [], regions: []}\n", encoding="utf-8")
     video = SimpleNamespace(video_id="v", watermark_regions_ref="nope")
     with pytest.raises(RegionsError):
         regions_for_video(tmp_path, video, WatermarkCfg(), store_path=store)

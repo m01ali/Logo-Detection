@@ -60,7 +60,7 @@ def test_compare_csv(tmp_path, repo_root):
     copy = tmp_path / "copy.csv"
     copy.write_bytes(ctx.path("rows.csv").read_bytes())
     assert compare_csv(ctx.path("rows.csv"), copy) == (True, "byte-identical")
-    copy.write_text("x")
+    copy.write_text("x", encoding="utf-8")
     assert compare_csv(ctx.path("rows.csv"), copy)[0] is False
 
 
@@ -78,5 +78,5 @@ def test_reports_bundle_and_package(tmp_path, repo_root):
         assert (out / f).exists(), f
     df = pd.read_csv(out / "rows.csv")
     assert (out / df.loc[0, "crop_path"]).exists()          # images travel with the CSV
-    note = (out / "CHECKPOINT_NOTE.md").read_text()
+    note = (out / "CHECKPOINT_NOTE.md").read_text(encoding="utf-8")
     assert "What is not yet in this run" in note and "No blind pass" in note

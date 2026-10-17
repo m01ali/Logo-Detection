@@ -145,7 +145,7 @@ def test_two_cpu_replays_give_identical_rows_csv(output_run):
 def test_harness_report_renders(output_run):
     from logo_pipeline.harness import write_report
     path = write_report(output_run)
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     assert "T18 merge counters (video)" in text and "Decision distribution" in text
     assert output_run.path("reports/merge_distributions.md").exists()
 
@@ -197,7 +197,7 @@ def test_enrol_with_augmentations_records_augmented_of_and_flushes_on_save(tmp_p
     assert sorted(recs) == [2, 3, 4]
     assert recs[2].augmented_of is None and recs[3].augmented_of == 2 and recs[4].augmented_of == 2
     assert all(r.origin == "review_ui.accept" for r in recs.values())
-    assert json.loads(Path(db.metadata_path).read_text())[2:] == ["verisure"] * 3
+    assert json.loads(Path(db.metadata_path).read_text(encoding="utf-8"))[2:] == ["verisure"] * 3
 
 
 def test_enrol_marks_indices_unresolved_when_a_batch_fails(tmp_path):

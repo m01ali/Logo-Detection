@@ -93,7 +93,7 @@ def iter_gold_boxes(labels_dir: Path, frames_dir: Path, names: list[str], videos
         if not frame.exists():
             continue
         width, height = size_of(frame)
-        for line_no, line in enumerate(lf.read_text().splitlines()):
+        for line_no, line in enumerate(lf.read_text(encoding="utf-8").splitlines()):
             parts = line.split()
             if len(parts) != 5:
                 continue

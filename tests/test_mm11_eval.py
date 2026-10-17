@@ -49,7 +49,7 @@ def test_router_only_under_a_changed_yaml_and_rows_csv_copy(tmp_path, repo_root)
     from logo_pipeline.stages.output import OutputStage
     ctx = _build(tmp_path, repo_root)
     OutputStage().run(ctx)
-    cfg = yaml.safe_load((repo_root / "configs" / "pipeline.yaml").read_text())
+    cfg = yaml.safe_load((repo_root / "configs" / "pipeline.yaml").read_text(encoding="utf-8"))
     cfg["router"]["thresholds"]["rule6_ocr_fuzzy_threshold"] = 99
     alt = tmp_path / "alt.yaml"
     alt.write_text(yaml.safe_dump(cfg))
@@ -92,7 +92,7 @@ def test_metrics_hand_computed_precision():
 def test_metrics_cli_without_labels(tmp_path, repo_root):
     ctx = _build(tmp_path, repo_root)
     assert mt.main(["--run", str(ctx.run_dir), "--no-labels"]) == 0
-    text = (ctx.run_dir / "reports" / "metrics.md").read_text()
+    text = (ctx.run_dir / "reports" / "metrics.md").read_text(encoding="utf-8")
     assert "Decision distribution" in text and "0 labelled" in text
 
 
