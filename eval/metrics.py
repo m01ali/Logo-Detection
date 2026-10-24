@@ -79,11 +79,13 @@ def compute(rows: list[dict], firing: list[dict], labels: dict[tuple, dict], wro
     by_code: dict[str, Counter] = defaultdict(Counter)
     accept = Counter()
     labelled = 0
+    deduped_labelled = 0
     for r in rows:
         lab = labels.get((str(r.get("video_id")), str(r.get("run_id")), int(r["det_id"])))
         if not lab:
             continue
         labelled += 1
+        deduped_labelled += r.get("router_decision") == "DEDUPED"
         by_code[r.get("reason_code")][lab["label"]] += 1
         if r.get("router_decision") == "ACCEPT":
             accept[lab["label"]] += 1
@@ -92,7 +94,7 @@ def compute(rows: list[dict], firing: list[dict], labels: dict[tuple, dict], wro
     return {
         "n": n, "decisions": decisions, "reasons": reasons, "deciding": deciding, "preempted": preempted,
         "review_load": decisions.get("REVIEW", 0) + decisions.get("UNKNOWN_LOGO", 0),
-        "labelled": labelled, "by_code": dict(by_code), "accept": accept, "wrong_brand_as": wrong_brand_as,
+        "labelled": labelled, "deduped_labelled": deduped_labelled, "by_code": dict(by_code), "accept": accept, "wrong_brand_as": wrong_brand_as,
         "evidence": evidence, "evidence_by_dec": evidence_by_dec,
         "match_mode": Counter(r.get("canonical_match_mode") for r in rows),
         "refinement": Counter(r.get("refinement_status") for r in rows), "rule5": rule5,
@@ -101,7 +103,9 @@ def compute(rows: list[dict], firing: list[dict], labels: dict[tuple, dict], wro
 
 def render(run_dir: Path, m: dict) -> str:
     n = m["n"]
-    lines = [f"# Router metrics — `{run_dir}`", "", f"{n} detections; {m['labelled']} labelled.", "",
+    flag = (f" **{m['deduped_labelled']} labels are on DEDUPED rows** (allowed, but the router kept another box "
+            "of the same brand there; their precision sits under the dedup reason codes)." if m["deduped_labelled"] else "")
+    lines = [f"# Router metrics — `{run_dir}`", "", f"{n} detections; {m['labelled']} labelled.{flag}", "",
              "## Decision distribution", ""]
     lines += md_table(["decision", "rows", "share"], [(d, m["decisions"].get(d, 0), pct(m["decisions"].get(d, 0), n))
                                                       for d in DECISIONS] +

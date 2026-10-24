@@ -64,6 +64,12 @@ def main(argv: list[str] | None = None) -> int:
     reports = run_dir / "reports"
     reports.mkdir(parents=True, exist_ok=True)
     (reports / "ordering_checks.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    import csv
+    with open(reports / "ordering_checks.csv", "w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(["check", "passed", "violating_det_id"])
+        for name, dets in results.items():
+            w.writerows([(name, False, d) for d in dets] or [(name, True, "")])
     return 1 if failed else 0
 
 

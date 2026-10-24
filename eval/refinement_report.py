@@ -166,6 +166,12 @@ def main(argv: list[str] | None = None) -> int:
     reports_dir.mkdir(parents=True, exist_ok=True)
     md_path = reports_dir / "refinement.md"
     md_path.write_text(render_markdown(run_dir, stats), encoding="utf-8")
+    import csv
+    with open(reports_dir / "refinement.csv", "w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(["kind", "name", "rows"])
+        w.writerows(("refinement_status", k, v) for k, v in sorted(stats["status_counts"].items()))
+        w.writerows(("failing_check", k, v) for k, v in sorted(stats["failing_checks"].items()))
     print(f"wrote {md_path} ({stats['n_rows']} rows, fallback rate {stats['fallback_rate']:.1%})")
     return 0
 

@@ -28,7 +28,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from _runio import joined_rows, md_table, pct, reports_dir  # noqa: E402
+from _runio import joined_rows, md_table, pct, reports_dir, write_csv  # noqa: E402
 
 DECISIONS = ("logo", "partial_logo", "not_logo", None)
 POSITIVE = ("logo", "partial_logo")
@@ -133,6 +133,10 @@ def main(argv: list[str] | None = None) -> int:
         acc = accuracy(rows, load_labels(args.labels), brands)
     out = reports_dir(run_dir, args.out)
     (out / "blind_vs_hinted.md").write_text(render(run_dir, a, acc), encoding="utf-8")
+    write_csv(out / "blind_vs_hinted_matrix.csv", ["hinted_is_logo", "blind_is_logo", "rows"],
+              [(h, b, a["matrix"].get((h, b), 0)) for h in DECISIONS for b in DECISIONS])
+    write_csv(out / "blind_vs_hinted_attribution.csv", ["hint", "hinted_brand_in_hint", "blind_brand_differs"],
+              [(k, *a[k]) for k in ("faiss", "audio", "ocr")])
     print(f"wrote {out / 'blind_vs_hinted.md'} ({a['n']} rows with both passes)")
     return 0
 

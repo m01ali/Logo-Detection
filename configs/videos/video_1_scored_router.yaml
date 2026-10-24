@@ -1,0 +1,16 @@
+# MM9 corpus run of video_1 once T32's distribution check has PASSED (spec
+# docs/15): the router reads the scored not_logo_confidence and Rule 1's
+# fallback variant is on. Rule 8 stays locked off regardless.
+video_id: video_1
+source: video_1.mp4
+channel: rai_sport
+channel_brand: rai sport
+watermark_regions_ref: rai_sport_default
+overrides:
+  vlm:
+    scoring:
+      enabled: true
+  router:
+    not_logo_confidence_source: scored
+    rules:
+      rule_1_fallback_logprob: true

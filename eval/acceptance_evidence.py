@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _runio import read_json, read_jsonl, reports_dir  # noqa: E402
+from _runio import read_json, read_jsonl, reports_dir, write_csv  # noqa: E402
 
 
 def caveats(manifest: dict, status: dict, has_blind: bool, has_scores: bool) -> list[str]:
@@ -75,9 +75,11 @@ def main(argv: list[str] | None = None) -> int:
     lines = [f"# Acceptance evidence caveats — `{manifest.get('video_id')}` / `{manifest.get('run_id')}`", "",
              f"Config hash `{manifest.get('config_hash')}`; brand list `{manifest.get('brand_list_version')}` "
              f"(`{manifest.get('brand_list_hash')}`); git `{manifest.get('git_sha')}`.", ""]
-    lines += [f"- {c}" for c in caveats(manifest, status, has_blind, has_scores)]
+    items = caveats(manifest, status, has_blind, has_scores)
+    lines += [f"- {c}" for c in items]
     out = reports_dir(run_dir, args.out)
     (out / "acceptance_evidence.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    write_csv(out / "acceptance_evidence.csv", ["caveat"], [(c.replace("**", "").replace("`", ""),) for c in items])
     print(f"wrote {out / 'acceptance_evidence.md'}")
     return 0
 

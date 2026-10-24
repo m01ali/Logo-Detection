@@ -1,0 +1,13 @@
+# MM9 corpus run of video_1 once the T30 spike has PASSED (spec docs/15 T31):
+# video_1.yaml (blind pass on) + closed-set decision scoring on. The router
+# still reads the generated not_logo_confidence; switch it only after T32
+# passes, with video_1_scored_router.yaml.
+video_id: video_1
+source: video_1.mp4
+channel: rai_sport
+channel_brand: rai sport
+watermark_regions_ref: rai_sport_default
+overrides:
+  vlm:
+    scoring:
+      enabled: true

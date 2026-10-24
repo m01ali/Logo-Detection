@@ -25,7 +25,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _runio import md_table, reports_dir  # noqa: E402
+from _runio import md_table, reports_dir, write_csv  # noqa: E402
 
 PASS_SHARE = 0.9
 
@@ -109,6 +109,10 @@ def main(argv: list[str] | None = None) -> int:
     out = reports_dir(Path("."), args.out)
     path = out / f"sampling_rate_{args.video_id}.md"
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    write_csv(out / f"sampling_rate_{args.video_id}.csv", ["kind", "key", "value"],
+              [("rate_share", r, round(s, 4)) for r, s in tried]
+              + [("believed_rate_distance", n, "" if d is None else d) for n, d in rows]
+              + [("confirmed_rate", "", "" if confirmed is None else confirmed)])
     print(f"{'confirmed ' + str(confirmed) if confirmed else 'no rate confirmed'}; wrote {path}")
     return 0
 

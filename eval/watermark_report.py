@@ -21,7 +21,7 @@ from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _runio import by_det, joined_rows, md_table, pct, read_jsonl, reports_dir  # noqa: E402
+from _runio import by_det, joined_rows, md_table, pct, read_jsonl, reports_dir, write_csv  # noqa: E402
 
 BRANCHES = ("no_regions", "inside", "outside_ocr_supported", "outside_weak_ocr")
 STRONG_OCR = 90
@@ -65,6 +65,9 @@ def main(argv: list[str] | None = None) -> int:
     a = analyse(read_jsonl(run_dir, "firing_log.jsonl"), joined_rows(run_dir))
     out = reports_dir(run_dir, args.out)
     (out / "watermark_report.md").write_text(render(run_dir, a), encoding="utf-8")
+    write_csv(out / "watermark_report.csv", ["kind", "name", "rows"],
+              [("rule5_branch", b, a["detail"].get(b, 0)) for b in sorted(a["detail"])]
+              + [("outside_with_ocr_ge_90", "", a["n_outside_strong"]), ("outside_total", "", a["n_outside"])])
     print(f"wrote {out / 'watermark_report.md'} ({a['n_channel']} channel-brand rows)")
     return 0
 

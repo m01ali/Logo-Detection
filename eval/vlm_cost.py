@@ -23,7 +23,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _runio import md_table, read_json, read_jsonl, reports_dir  # noqa: E402
+from _runio import md_table, read_json, read_jsonl, reports_dir, write_csv  # noqa: E402
 
 # 17 §T66: route-three tiers, approximate detections (hinted pass only).
 TIERS = (("tier 1: videos 14, 1", 1000), ("tier 2: + video 27", 3000), ("tier 3: + videos 98, 100", 7000))
@@ -108,7 +108,11 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     run_dir = Path(args.run)
     out = reports_dir(run_dir, args.out)
-    (out / "vlm_cost.md").write_text(render(run_dir, analyse(run_dir)), encoding="utf-8")
+    a = analyse(run_dir)
+    (out / "vlm_cost.md").write_text(render(run_dir, a), encoding="utf-8")
+    write_csv(out / "vlm_cost.csv", ["pass", "n", "mean_s", "median_s", "p90_s"],
+              [(name, s["n"], round(s["mean"], 3), round(s["median"], 3), round(s["p90"], 3)) if s
+               else (name, 0, "", "", "") for name, s in a["passes"].items()])
     print(f"wrote {out / 'vlm_cost.md'}")
     return 0
 

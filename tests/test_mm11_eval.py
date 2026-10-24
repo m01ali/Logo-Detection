@@ -210,3 +210,57 @@ def test_acceptance_caveats_follow_the_run():
     for phrase in ("Rule 6", "YOLO", "Rules 2 and 3 are unreachable", "`generated`", "frames mode",
                    "No blind pass", "No scored decision field", "No channel declared"):
         assert phrase in text
+
+
+def test_labels_on_deduped_rows_are_flagged():
+    rows = [{"det_id": 0, "video_id": "v", "run_id": "r", "router_decision": "DEDUPED",
+             "reason_code": "duplicate_same_brand_box"}]
+    m = mt.compute(rows, [], {("v", "r", 0): {"label": "TP"}})
+    assert m["deduped_labelled"] == 1
+    assert "1 labels are on DEDUPED rows" in mt.render(Path("r"), m)
+
+
+EVAL_SCRIPTS = ("acceptance_evidence", "blind_vs_hinted", "faiss_rebenchmark", "faiss_selfmatch", "iou_match",
+                "label_request", "merge_ablation", "metrics", "ordering_checks", "refinement_report",
+                "sampling_rate_check", "score_distribution", "vlm_cost", "watermark_report")
+
+
+@pytest.mark.parametrize("name", EVAL_SCRIPTS)
+def test_every_eval_script_has_help(name):
+    mod = __import__(name)
+    with pytest.raises(SystemExit) as e:
+        mod.main(["--help"])
+    assert e.value.code == 0
+
+
+def test_run_scripts_write_markdown_and_csv(tmp_path, repo_root):
+    """17 DoD: every script writes markdown + CSV under reports/ and runs on a run directory."""
+    import merge_ablation
+    import ordering_checks
+    import refinement_report
+    import vlm_cost
+
+    from logo_pipeline.stages.output import OutputStage
+    from test_mm1_output_stage import _run_upto_router
+    from helpers import make_ctx
+    ctx = make_ctx(tmp_path, repo_root, n_frames=2)
+    _run_upto_router(ctx, [{"raw_det_id": i, "frame_idx": 0, "source": "gdino", "box_xyxy": b, "score": 0.9,
+                            "label": "a", "class_conf": None, "frame_width": 200, "frame_height": 100}
+                           for i, b in enumerate([[10, 10, 60, 60], [12, 12, 61, 61], [100, 20, 150, 70]])])
+    OutputStage().run(ctx)
+    run = str(ctx.run_dir)
+    expected = {"metrics": ["metrics.md", "metrics_decisions.csv"],
+                "ordering_checks": ["ordering_checks.md", "ordering_checks.csv"],
+                "refinement_report": ["refinement.md", "refinement.csv"],
+                "merge_ablation": ["merge_distributions.md", "merge_distributions.csv"],
+                "watermark_report": ["watermark_report.md", "watermark_report.csv"],
+                "blind_vs_hinted": ["blind_vs_hinted.md", "blind_vs_hinted_matrix.csv"],
+                "vlm_cost": ["vlm_cost.md", "vlm_cost.csv"],
+                "acceptance_evidence": ["acceptance_evidence.md", "acceptance_evidence.csv"]}
+    for name, files in expected.items():
+        mod = __import__(name)
+        args = ["--run", run] + (["--no-labels"] if name == "metrics" else []) + \
+            (["--config", str(repo_root / "configs" / "pipeline.yaml")] if name == "blind_vs_hinted" else [])
+        assert mod.main(args) in (0, None), name
+        for f in files:
+            assert (ctx.run_dir / "reports" / f).exists(), (name, f)
