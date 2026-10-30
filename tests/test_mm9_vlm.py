@@ -287,7 +287,9 @@ def test_router_input_carries_scores(tmp_path, repo_root):
 def test_score_distribution_pass_and_fail():
     import score_distribution as sd
     hinted = {i: {"parsed": {"is_logo": "logo" if i % 2 else "not_logo", "logo_probability": 95}} for i in range(80)}
-    spread = [{"det_id": i, "logo_probability_scored": float(i), "not_logo_confidence": 1 - i / 100} for i in range(80)]
+    # logo rows spread over 55-95, not_logo rows over 5-45: spread out and agreeing with the decisions.
+    spread = [{"det_id": i, "logo_probability_scored": (55 + i / 2) if i % 2 else (5 + i / 2),
+               "not_logo_confidence": (0.45 - i / 200) if i % 2 else (0.95 - i / 200)} for i in range(80)]
     assert sd.analyse(spread, hinted)["passed"]
     clumped = [{"det_id": i, "logo_probability_scored": 99.5, "not_logo_confidence": 0.01} for i in range(80)]
     a = sd.analyse(clumped, hinted)
@@ -304,3 +306,50 @@ def test_vlm_cost_report(tmp_path, repo_root):
     assert vlm_cost.main(["--run", str(ctx.run_dir)]) == 0
     text = (ctx.run_dir / "reports" / "vlm_cost.md").read_text(encoding="utf-8")
     assert "| hinted call | 4 | 10.00" in text and "| this run | 4 |" in text
+
+
+def test_score_distribution_fails_when_not_logo_rows_score_as_logos():
+    """The first Windows corpus run: well spread, passes both spec criteria, but every not_logo row
+    gets P(not_logo) < 0.5 — switching the router on it would silence Rule 1."""
+    import score_distribution as sd
+    hinted = {i: {"parsed": {"is_logo": "logo" if i % 3 == 0 else "not_logo"}} for i in range(90)}
+    scores = [{"det_id": i, "logo_probability_scored": 60 + (i % 40), "not_logo_confidence": (40 - i % 40) / 100}
+              for i in range(90)]
+    a = sd.analyse(scores, hinted)
+    spec_checks = [v for k, v in a["checks"].items() if "added beyond" not in k]
+    assert all(spec_checks) and not a["passed"]
+    assert a["agree"]["not_logo"][0] == 0
+
+
+def test_scorer_never_forces_a_closing_quote():
+    """The model writes the label followed by the merged token '",\\n', so a forced standalone '"'
+    is a token it never emits; only the label's own tokens may be scored."""
+    proc = _CharProcessor()
+    seen = []
+    real_call = proc.__call__
+
+    def spy(text, **kw):
+        seen.append(list(text))
+        return real_call(text, **kw)
+    proc.__call__ = spy
+    with patch("qwen_vl_utils.process_vision_info", return_value=(None, None)):
+        score_labels(_TeacherModel("not_logo", True), type("P", (), {"apply_chat_template": proc.apply_chat_template,
+                                                                    "__call__": staticmethod(spy)})(),
+                     [{"role": "user"}], '{"is_logo": "', ["logo", "not_logo"], "sequence_logprob")
+    batch = seen[-1]
+    assert [t[-len(lab):] for t, lab in zip(batch, ["logo", "not_logo"])] == ["logo", "not_logo"]
+    assert not any(t.endswith('"') for t in batch)
+
+
+def test_label_spans_refuses_ambiguous_labels():
+    with pytest.raises(ValueError):
+        label_spans([1, 2], [[1, 2, 7], [1, 2, 7, 8]], "sequence_logprob")     # label 0 is a prefix of label 1
+
+
+def test_spike_verdict_requires_each_class_not_a_pooled_majority():
+    hinted = _hinted(["logo"] * 26 + ["not_logo"] * 24)
+    # every logo row tracked, no not_logo row tracked: 26/50 pooled is a "majority", but a whole class fails
+    recs = [{"det_id": i, "decision_scores": {"logo": 0.9, "partial_logo": 0.02, "not_logo": 0.05, "uncertain": 0.03},
+             "logo_probability_scored": 60 + i * 0.7} for i in range(50)]
+    v = spike_verdict(recs, hinted, 50)
+    assert not v["passed"] and v["by_class"]["not_logo"] == (0, 24)

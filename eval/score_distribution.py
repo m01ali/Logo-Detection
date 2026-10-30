@@ -10,7 +10,12 @@ Reads ``vlm/scores.jsonl`` and the hinted decisions; writes
 ``logo_probability`` (which took only 0/95/100 in M2).
 
 Pass criterion (stated in the report): no single 1-point bin holds more than
-50 % of the positive rows, and there are at least 30 distinct values. On pass
+50 % of the positive rows, and there are at least 30 distinct values — plus one
+added here beyond ``15``: in each class the score agrees with the model's own
+hinted decision on most rows (logo/partial rows score above 50, not_logo rows
+have ``not_logo_confidence`` above 0.5). The first scored run spread well and
+passed the two spec criteria while scoring every not_logo row as a logo, which
+would have silenced Rule 1. On pass
 the report prints the two YAML switches to make; on fail the router stays on
 the generated field and the report says so. The script never edits the YAML.
 
@@ -58,13 +63,18 @@ def analyse(scores: list[dict], hinted: dict[int, dict], max_bin_share: float = 
     distinct = len({round(r["lps"], 2) for r in rows if r["lps"] is not None})
     gen_values = Counter(int(r["generated"]) for r in rows if isinstance(r["generated"], (int, float)))
     max_share = top_count / len(positive) if positive else 1.0
+    negative = [r for r in rows if r["is_logo"] == "not_logo" and r["nlc"] is not None]
+    agree = {"logo/partial_logo": (sum(1 for r in positive if r["lps"] > 50), len(positive)),
+             "not_logo": (sum(1 for r in negative if r["nlc"] > 0.5), len(negative))}
     checks = {f"no 1-point bin holds > {int(max_bin_share * 100)}% of positive rows": max_share <= max_bin_share,
-              f">= {min_distinct} distinct values": distinct >= min_distinct}
+              f">= {min_distinct} distinct values": distinct >= min_distinct,
+              "score agrees with the hinted decision on most rows of each class (added beyond 15)":
+                  all(n == 0 or a / n > 0.5 for a, n in agree.values())}
     return {
         "n": len(rows), "n_positive": len(positive), "top_bin": top_bin, "top_bin_share": max_share,
         "distinct": distinct, "above_95_positive": sum(1 for r in positive if r["lps"] > 95),
         "generated_distinct": len(gen_values), "generated_values": dict(gen_values.most_common(10)),
-        "hist": hist, "checks": checks, "passed": bool(rows) and all(checks.values()),
+        "hist": hist, "checks": checks, "agree": agree, "passed": bool(rows) and all(checks.values()),
     }
 
 
@@ -83,6 +93,8 @@ def render(run_dir: Path, a: dict) -> str:
     lines += ["",
               f"- Most-populated 1-point bin among positive rows: `[{a['top_bin']}, {(a['top_bin'] or 0) + 1})` "
               f"holding {pct(int(round(a['top_bin_share'] * a['n_positive'])), a['n_positive'])}.",
+              "- Agreement with the hinted decision: " + "; ".join(
+                  f"{k} {x} of {t} ({pct(x, t)})" for k, (x, t) in a["agree"].items()) + ".",
               f"- Distinct `logo_probability_scored` values (2 dp): {a['distinct']}.",
               f"- Positive rows above 95: {a['above_95_positive']} ({pct(a['above_95_positive'], a['n_positive'])}).",
               f"- Generated `logo_probability` for comparison: {a['generated_distinct']} distinct values; "

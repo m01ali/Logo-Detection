@@ -3,7 +3,7 @@ scoring under the hinted context.
 
 For each representative the hinted prompt is rebuilt exactly as the production
 call, followed by an assistant prefix that opens the JSON (``{"is_logo": "``).
-Each label ``L`` of ``vlm.scoring.labels`` is teacher-forced as ``L + '"'``
+Each label ``L`` of ``vlm.scoring.labels`` is teacher-forced after the prefix
 and scored:
 
 * ``sequence_logprob``: the summed log-probability of the label's tokens;
@@ -14,10 +14,15 @@ and scored:
 ``logo_probability_scored = 100 * (P(logo) + P(partial_logo))`` [ASSUMPTION C7]
 and ``not_logo_confidence = P(not_logo)``.
 
-Tokeniser boundaries: the prefix ends in ``"`` and a BPE vocabulary may merge
-that quote with the label's first letters. Every label is therefore scored
-from the same token position — the longest prefix all labels share with the
-context — so each label pays for exactly the same leading text.
+Tokeniser boundaries. Only the label's own tokens are scored, never the closing
+quote: in the model's reply the label is followed by the merged token ``",\n``
+(or ``", ``), so a forced standalone ``"`` is a token the model never emits and
+its log-probability swamped the label term (``15`` T30 writes ``L + '"'``; on
+the Qwen2.5 vocabulary that made every row score as a logo, including those the
+model itself answered ``not_logo``). Dropping it is sound only when no label's
+tokens are a prefix of another's, which ``label_spans`` checks. Every label is
+scored from the same position — the longest prefix all labels share with the
+context — in case the vocabulary merges the opening quote with a label.
 
 The prefix is taken from the model's own hinted reply where it contains
 ``"is_logo": "`` (pretty-printed JSON starts ``{\\n  "is_logo": "``), else the
@@ -82,6 +87,12 @@ def label_spans(ctx_ids, label_ids: list, method: str) -> tuple[int, list[tuple[
     ``spans[b] = (start, end)`` the half-open range of label ``b``'s tokens to score.
     """
     k = min(common_prefix_len(ctx_ids, ids) for ids in label_ids)
+    tails = [tuple(int(t) for t in ids[k:]) for ids in label_ids]
+    for a in range(len(tails)):
+        for b in range(len(tails)):
+            if a != b and tails[a] == tails[b][:len(tails[a])]:
+                raise ValueError(f"label {a}'s tokens {tails[a]} are a prefix of label {b}'s {tails[b]}: scoring "
+                                 "without the closing delimiter would be ambiguous")
     if method == "sequence_logprob":
         return k, [(k, len(ids)) for ids in label_ids]
     # first_token_softmax: the first position (>= k) where the label sequences disagree.
@@ -92,7 +103,7 @@ def label_spans(ctx_ids, label_ids: list, method: str) -> tuple[int, list[tuple[
 
 
 def score_labels(model, processor, messages: list[dict], prefix: str, labels: list[str], method: str) -> list[float]:
-    """One batched forward pass over ``context + prefix + label + '"'`` for every label."""
+    """One batched forward pass over ``context + prefix + label`` for every label (no closing quote)."""
     import torch
     from qwen_vl_utils import process_vision_info
 
@@ -101,7 +112,7 @@ def score_labels(model, processor, messages: list[dict], prefix: str, labels: li
     n = len(labels)
     ctx_batch = processor(text=[text_ctx], images=image_inputs, videos=video_inputs, return_tensors="pt")
     ctx_ids = ctx_batch["input_ids"][0].tolist()
-    batch = processor(text=[text_ctx + lab + '"' for lab in labels],
+    batch = processor(text=[text_ctx + lab for lab in labels],
                       images=(image_inputs or []) * n or None, videos=(video_inputs or []) * n or None,
                       padding=True, return_tensors="pt")
     ids = batch["input_ids"]
@@ -223,23 +234,30 @@ def spike_verdict(records: list[dict], hinted: dict[int, dict], n_requested: int
     """The T30 exit criteria over spike records (pure)."""
     scored = [r for r in records if r.get("decision_scores")]
     tracked = considered = 0
+    by_class = {"logo-like": [0, 0], "not_logo": [0, 0]}          # [tracked, considered]
     for r in scored:
         is_logo = ((hinted.get(r["det_id"]) or {}).get("parsed") or {}).get("is_logo")
-        if is_logo is None:
+        if is_logo not in POSITIVE and is_logo != "not_logo":
             continue
         considered += 1
         ds = r["decision_scores"]
         mass_logo = ds.get("logo", 0.0) + ds.get("partial_logo", 0.0)
-        if (is_logo in POSITIVE and mass_logo > 0.5) or (is_logo == "not_logo" and ds.get("not_logo", 0.0) > 0.5):
-            tracked += 1
+        cls = "logo-like" if is_logo in POSITIVE else "not_logo"
+        ok = mass_logo > 0.5 if cls == "logo-like" else ds.get("not_logo", 0.0) > 0.5
+        tracked += ok
+        by_class[cls][0] += ok
+        by_class[cls][1] += 1
     distinct = len({round(r["logo_probability_scored"], 2) for r in scored
                     if r.get("logo_probability_scored") is not None})
     checks = {
         "all_scored": len(scored) == n_requested,
-        "mass_tracks_is_logo_in_majority": considered > 0 and tracked / considered > 0.5,
+        # Per class, not pooled: a pooled majority passed while every not_logo row was scored as a logo.
+        "mass_tracks_is_logo_in_majority_of_each_class": considered > 0 and all(
+            n == 0 or t / n > 0.5 for t, n in by_class.values()),
         f"at_least_{min_distinct}_distinct_values": distinct >= min_distinct,
     }
     return {"n_requested": n_requested, "n_scored": len(scored), "tracked": tracked, "considered": considered,
+            "by_class": {k: tuple(v) for k, v in by_class.items()},
             "distinct_values": distinct, "checks": checks, "passed": all(checks.values())}
 
 
@@ -271,7 +289,8 @@ def spike_report(verdict: dict, records: list[dict], hinted: dict[int, dict], ct
     lines += [f"| {k} | {'pass' if v else 'FAIL'} |" for k, v in verdict["checks"].items()]
     lines += ["",
               f"- Scored {verdict['n_scored']} of {verdict['n_requested']}.",
-              f"- Mass tracks `is_logo` on {verdict['tracked']} of {verdict['considered']} rows with a parsed decision.",
+              f"- Mass tracks `is_logo` on {verdict['tracked']} of {verdict['considered']} rows with a parsed decision"
+              + "".join(f"; {k}: {t} of {c}" for k, (t, c) in verdict.get("by_class", {}).items()) + ".",
               f"- Distinct `logo_probability_scored` values (2 dp): {verdict['distinct_values']}.",
               "", "## Cost (feeds T36)", "",
               f"- Scoring pass per detection: median {med(secs)} over {len(secs)} rows.",
