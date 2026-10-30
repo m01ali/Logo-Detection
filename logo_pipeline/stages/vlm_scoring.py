@@ -321,7 +321,9 @@ def run_spike(ctx: RunContext, n: int = 50, seed: int = 42) -> dict:
             records.append(rec)
             fh.write(dumps_line(rec) + "\n")
             fh.flush()
+        ctx.log.stage_start("vlm_spike", VlmScoringStage.device)
         score_detections(ctx, sample, keep)
+        ctx.log.stage_end("vlm_spike", {"scored": len(records)})
     scfg = ctx.cfg.vlm.scoring
     verdict = spike_verdict(records, hinted, len(sample))
     info = {"model_id": ctx.cfg.vlm.model_id, "quantisation": ctx.cfg.vlm.quantisation, "method": scfg.method,
