@@ -4,6 +4,7 @@ the route-three sampling-rate check (T66), and the acceptance caveats."""
 
 from __future__ import annotations
 
+import json
 import sys
 from collections import Counter
 from pathlib import Path
@@ -210,6 +211,26 @@ def test_acceptance_caveats_follow_the_run():
     for phrase in ("Rule 6", "YOLO", "Rules 2 and 3 are unreachable", "`generated`", "frames mode",
                    "No blind pass", "No scored decision field", "No channel declared"):
         assert phrase in text
+
+
+def test_acceptance_caveat_states_a_held_scored_switch(tmp_path):
+    rep = tmp_path / "reports"
+    (rep / "router_scored").mkdir(parents=True)
+    (rep / "score_distribution.md").write_text("# T32\n\n**Result: PASS.**\n", encoding="utf-8")
+
+    def jsonl(path, header, decisions):
+        path.write_text("\n".join(json.dumps(r) for r in [header] + [{"det_id": i, "router_decision": d}
+                                                                     for i, d in enumerate(decisions)]) + "\n",
+                        encoding="utf-8")
+    jsonl(tmp_path / "router_output.jsonl", {"_header": True}, ["REJECT", "REJECT", "REVIEW"])
+    jsonl(rep / "router_scored" / "router_output.jsonl", {"_header": True, "not_logo_confidence_source": "scored"},
+          ["REJECT", "REVIEW", "REVIEW"])
+    t32 = ae.t32_outcome(tmp_path)
+    assert t32["passed"] and t32["replay"] == "router_scored"
+    manifest = {"config": {"router": {"not_logo_confidence_source": "generated"}}}
+    text = "\n".join(ae.caveats(manifest, {}, has_blind=True, has_scores=True, t32=t32))
+    assert "T32 passed" in text and "review load goes from 1 to 2" in text and "A11" in text
+    assert "until T32 passes" not in text
 
 
 def test_labels_on_deduped_rows_are_flagged():
