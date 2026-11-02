@@ -104,9 +104,13 @@ def generate(model, processor, content: list[dict], vcfg) -> str:
     image_inputs, video_inputs = process_vision_info(messages)
     inputs = processor(text=[text], images=image_inputs, videos=video_inputs, padding=True,
                        return_tensors="pt").to(model.device, model.dtype)
+    greedy = vcfg.decoding == "greedy"
+    # The checkpoint's generation_config carries a temperature; greedy decoding ignores it, and
+    # leaving it set makes transformers warn on every call.
+    sampling = {"temperature": None} if greedy else {}
     with torch.no_grad():
-        generated_ids = model.generate(**inputs, max_new_tokens=vcfg.max_new_tokens,
-                                       do_sample=(vcfg.decoding != "greedy"))
+        generated_ids = model.generate(**inputs, max_new_tokens=vcfg.max_new_tokens, do_sample=not greedy,
+                                       **sampling)
     trimmed = [out[len(inp):] for inp, out in zip(inputs.input_ids, generated_ids)]
     return processor.batch_decode(trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
 
