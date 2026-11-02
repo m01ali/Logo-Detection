@@ -95,6 +95,15 @@ def percentiles(v: list[float]) -> dict:
     return {p: round(float(np.percentile(a, p)), 4) for p in (5, 25, 50, 75, 95)}
 
 
+def gap(s: list[float]) -> float:
+    """Top-1 minus top-2 over the brand-deduplicated similarities."""
+    return (s[0] - s[1]) if len(s) >= 2 else (s[0] if s else 0.0)
+
+
+def rule7_fires(s: list[float]) -> bool:
+    return bool(s) and s[0] >= RULE7_TOP1 and gap(s) >= RULE7_GAP
+
+
 def evaluate(present: list[dict], absent: list[dict], brands: BrandList) -> dict:
     truth = [brand_key(r["class_name"], brands) for r in present]
     retrieved = [[brand_key(b, brands) for b in r["top_brands"]] for r in present]
@@ -102,14 +111,15 @@ def evaluate(present: list[dict], absent: list[dict], brands: BrandList) -> dict
     acc = {k: mean_recall_at_k(retrieved, truth, k) for k in KS}
     correct = [bool(rb) and rb[0] == t for rb, t in zip(retrieved, truth)]
     top1 = [s[0] if s else 0.0 for s in sims]
-    gaps = [(s[0] - s[1]) if len(s) >= 2 else (s[0] if s else 0.0) for s in sims]
     sweep = threshold_sensitivity(sims, retrieved, truth, SWEEP, k=1) if present else {}
     curve = []
     for t in SWEEP:
         sel = [c for c, s in zip(correct, top1) if s >= t]
         curve.append((t, len(sel), (sum(sel) / len(sel)) if sel else None, sum(sel) / len(present) if present else 0))
     sep = next(((t, p, r) for t, n, p, r in curve if p is not None and p >= TARGET_PRECISION and n >= 10), None)
-    r7 = [c for c, s, g in zip(correct, top1, gaps) if s >= RULE7_TOP1 and g >= RULE7_GAP]
+    r7 = [c for c, s in zip(correct, sims) if rule7_fires(s)]
+    # An absent crop's true brand is not in the index, so every Rule 7 firing on one names a wrong brand.
+    r7_absent = sum(1 for r in absent if rule7_fires(r["top_sims"]))
     absent_top1 = [r["top_sims"][0] for r in absent if r["top_sims"]]
     abstain = float(np.percentile(absent_top1, 95)) if absent_top1 else None
     kept = [c for c, s in zip(correct, top1) if abstain is not None and s >= abstain]
@@ -119,7 +129,8 @@ def evaluate(present: list[dict], absent: list[dict], brands: BrandList) -> dict
         "correct_top1": [s for s, c in zip(top1, correct) if c], "incorrect_top1": [s for s, c in zip(top1, correct) if not c],
         "absent_top1": absent_top1, "curve": curve, "sweep": sweep, "separation": sep,
         "rule7_n": len(r7), "rule7_precision": (sum(r7) / len(r7)) if r7 else None,
-        "rule7_recall": (sum(r7) / len(present)) if present else 0.0,
+        "rule7_recall": (sum(r7) / len(present)) if present else 0.0, "rule7_absent": r7_absent,
+        "rule7_precision_all": (sum(r7) / (len(r7) + r7_absent)) if r7 or r7_absent else None,
         "abstain": abstain, "abstain_recall": (sum(kept) / len(present)) if present and abstain is not None else None,
     }
 
@@ -158,12 +169,16 @@ def render(all_e: dict, no_ch: dict, excluded: int, n_brands: int) -> str:
     lines += render_section("Without channel classes (`evaluation.channel_classes`)", no_ch)
     e = no_ch if no_ch["n_present"] else all_e
     lines += ["## Recommendation", ""]
-    if e["rule7_precision"] is None:
-        lines.append(f"- Rule 7 ({RULE7_TOP1} / gap {RULE7_GAP}): no present crop reaches it; not supported.")
+    if e["rule7_precision_all"] is None:
+        lines.append(f"- Rule 7 ({RULE7_TOP1} / gap {RULE7_GAP}): no crop reaches it; not supported.")
     else:
-        ok = e["rule7_precision"] >= TARGET_PRECISION
-        lines.append(f"- Rule 7 ({RULE7_TOP1} / gap {RULE7_GAP}): {e['rule7_n']} predictions, precision "
-                     f"{e['rule7_precision']:.3f}, recall {e['rule7_recall']:.3f} — "
+        ok = e["rule7_precision_all"] >= TARGET_PRECISION
+        present_part = (f"{e['rule7_n']} present crops (precision {e['rule7_precision']:.3f}, recall "
+                        f"{e['rule7_recall']:.3f})" if e["rule7_n"] else "no present crop")
+        absent_part = (f"on {e['rule7_absent']} absent crops, each a wrong brand" if e["rule7_absent"]
+                       else "on no absent crop")
+        lines.append(f"- Rule 7 ({RULE7_TOP1} / gap {RULE7_GAP}), FAISS clause alone: fires on {present_part} and "
+                     f"{absent_part}; precision over all firings {e['rule7_precision_all']:.3f} — "
                      f"{'supported by this evidence' if ok else 'not supported'}.")
     if e["abstain"] is not None:
         lines.append(f"- `faiss.abstain_threshold`: the 95th percentile of absent top-1 similarity is "

@@ -83,5 +83,6 @@ extraction_output/
 *.mp4
 fixed-images/
 runs/
+reports/*.npy
 logo_audio.wav
 *.avi 

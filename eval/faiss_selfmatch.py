@@ -26,13 +26,15 @@ Usage::
 from __future__ import annotations
 
 import os
+import sys
 
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")     # faiss + torch OpenMP runtimes (macOS), as the FAISS app
+if sys.platform == "darwin":
+    os.environ.setdefault("OMP_NUM_THREADS", "1")         # with two runtimes loaded, more threads hang or exit silently
 
 import argparse
 import csv
 import re
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 

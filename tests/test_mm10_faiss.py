@@ -139,6 +139,15 @@ def test_rebenchmark_populations_accuracy_and_channel_variant():
     assert "Without channel classes" in text and "Rule 7 remains disabled" in text
 
 
+def test_rebenchmark_rule7_counts_firings_on_absent_crops_as_wrong_brands():
+    rows = [_row("verisure", ["Verisure", "x"], [0.98, 0.80])] + \
+           [_row("nobody", ["x", "y"], [0.98, 0.85]) for _ in range(3)]          # absent, but Rule 7 fires
+    e = rb.evaluate(*rb.populations(rows, {"verisure", "x", "y"}, BRANDS), BRANDS)
+    assert e["rule7_precision"] == 1.0 and e["rule7_absent"] == 3 and e["rule7_precision_all"] == 0.25
+    text = rb.render(e, e, excluded=0, n_brands=1)
+    assert "3 absent crops" in text and "not supported" in text
+
+
 def test_rebenchmark_states_the_kill_criterion_when_nothing_separates():
     rows = [_row("verisure", ["x"] if i % 2 else ["Verisure"], [0.9]) for i in range(30)]
     e = rb.evaluate(*rb.populations(rows, {"verisure", "x"}, BRANDS), BRANDS)
