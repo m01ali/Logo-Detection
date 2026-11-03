@@ -94,7 +94,7 @@ def evaluate(rows: list[dict], gold: dict[int, list[dict]], iou_t: float, box_ke
             by_frame[r["frame_idx"]].append(r)
     res = {"all": Counter(), "no_channel": Counter(), "per_class": defaultdict(Counter), "decisions": Counter(),
            "brand_correct": 0, "accept": Counter(), "known_routed_unknown": 0, "recall_by_source": Counter(),
-           "gold_total": 0}
+           "gold_total": 0, "reasons": Counter(), "vlm_decisions": Counter(), "matched_rows": []}
     for fi, g in gold.items():
         dets = by_frame.get(fi, [])
         pairs = match_frame(g, dets, iou_t, box_key)
@@ -115,9 +115,13 @@ def evaluate(rows: list[dict], gold: dict[int, list[dict]], iou_t: float, box_ke
             d, gb = dets[di], g[gi]
             dec = d.get("router_decision")
             res["decisions"][dec] += 1
+            res["reasons"][(dec, d.get("reason_code"))] += 1
+            res["vlm_decisions"][d.get("vlm_decision") or "unparsed"] += 1
             gold_c = brands.map_exact(gb["class_name"]) or normalise(gb["class_name"])
             correct = d.get("canonical_brand") == gold_c
             res["brand_correct"] += correct
+            res["matched_rows"].append((fi, d.get("det_id"), gb["class_name"], d.get("canonical_brand"), correct, dec,
+                                        d.get("reason_code"), d.get("vlm_decision")))
             if dec == "ACCEPT":
                 res["accept"]["correct" if correct else "wrong"] += 1
             if dec == "UNKNOWN_LOGO" and brands.map_exact(gb["class_name"]):
@@ -149,8 +153,13 @@ def render(run_dir: Path, iou_t: float, loose: dict, sel: dict, compare: dict | 
               f"of {m} ({pct(loose['brand_correct'], m)}).",
               f"- ACCEPT precision on matched ACCEPTs: {loose['accept'].get('correct', 0)} of "
               f"{sum(loose['accept'].values())} ({pct(loose['accept'].get('correct', 0), sum(loose['accept'].values()))}).",
-              f"- Known brand routed UNKNOWN_LOGO: {loose['known_routed_unknown']}.", "",
-              "## Recall on these frames by detector source", ""]
+              f"- Known brand routed UNKNOWN_LOGO: {loose['known_routed_unknown']}.",
+              "- The VLM's own decision on these true logos: "
+              + ", ".join(f"{d}: {c}" for d, c in loose["vlm_decisions"].most_common()) + ".", ""]
+    lines += md_table(["decision", "reason code", "matched boxes", "share"],
+                      [(d, rc, c, pct(c, m)) for (d, rc), c in loose["reasons"].most_common()])
+    lines += ["", "Each matched box is listed in `iou_match_matched.csv` (filter on `router_decision` to review the "
+              "rejected true logos).", "", "## Recall on these frames by detector source", ""]
     total = loose["gold_total"]
     rows = [(src, c, pct(c, total)) for src, c in loose["recall_by_source"].most_common()]
     rows.append(("any", m, pct(m, total)))
@@ -206,6 +215,9 @@ def main(argv: list[str] | None = None) -> int:
     (out / "iou_match.md").write_text(render(run_dir, args.iou, loose, sel, compare), encoding="utf-8")
     write_csv(out / "iou_match_per_class.csv", ["class", "matched", "gold_not_detected"],
               [(k, v.get("matched", 0), v.get("gold_not_detected", 0)) for k, v in sorted(loose["per_class"].items())])
+    write_csv(out / "iou_match_matched.csv", ["frame_idx", "det_id", "gold_class", "canonical_brand", "brand_correct",
+                                              "router_decision", "reason_code", "vlm_decision"],
+              sorted(loose["matched_rows"], key=lambda r: (r[0], -1 if r[1] is None else r[1])))
     print(f"wrote {out / 'iou_match.md'}: matched {loose['all'].get('matched', 0)} of {loose['gold_total']} gold")
     return 0
 

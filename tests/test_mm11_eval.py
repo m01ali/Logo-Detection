@@ -110,9 +110,11 @@ def test_iou_counts_on_two_frames_with_channel_exclusion():
     gold = {0: [{"class_name": "verisure", "box": [0, 0, 10, 10]}, {"class_name": "rai", "box": [20, 20, 30, 30]}],
             1: [{"class_name": "hp", "box": [5, 5, 15, 15]}]}
     rows = [{"frame_idx": 0, "loose_bbox": [0, 0, 10, 10], "selected_bbox": [0, 0, 10, 10], "router_decision": "ACCEPT",
-             "canonical_brand": "verisure", "detection_sources": ["gdino", "yolo"]},
+             "canonical_brand": "verisure", "detection_sources": ["gdino", "yolo"], "det_id": 0,
+             "reason_code": "clear_logo_ocr_confirmed", "vlm_decision": "logo"},
             {"frame_idx": 0, "loose_bbox": [20, 20, 30, 30], "selected_bbox": [40, 40, 45, 45],
-             "router_decision": "UNKNOWN_LOGO", "canonical_brand": "UNKNOWN", "detection_sources": ["gdino"]},
+             "router_decision": "UNKNOWN_LOGO", "canonical_brand": "UNKNOWN", "detection_sources": ["gdino"],
+             "det_id": 1, "reason_code": "unknown_logo", "vlm_decision": "logo"},
             {"frame_idx": 1, "loose_bbox": [90, 90, 99, 99], "selected_bbox": [90, 90, 99, 99],
              "router_decision": "REJECT", "canonical_brand": None, "detection_sources": ["yolo"]}]
     loose = im.evaluate(rows, gold, 0.5, "loose_bbox", BRANDS, {"rai"})
@@ -121,9 +123,12 @@ def test_iou_counts_on_two_frames_with_channel_exclusion():
     assert loose["brand_correct"] == 1 and loose["accept"] == Counter(correct=1)
     assert loose["known_routed_unknown"] == 1                 # rai is in the list but routed UNKNOWN_LOGO
     assert loose["recall_by_source"] == Counter(gdino=2, yolo=1)
+    assert loose["reasons"] == Counter({("ACCEPT", "clear_logo_ocr_confirmed"): 1, ("UNKNOWN_LOGO", "unknown_logo"): 1})
+    assert loose["vlm_decisions"] == Counter(logo=2) and sorted(r[1] for r in loose["matched_rows"]) == [0, 1]
     sel = im.evaluate(rows, gold, 0.5, "selected_bbox", BRANDS, {"rai"})
     assert sel["all"]["matched"] == 1                         # refinement moved the rai box off its gold
-    assert "selected_bbox" in im.render(Path("r"), 0.5, loose, sel, None)
+    text = im.render(Path("r"), 0.5, loose, sel, None)
+    assert "selected_bbox" in text and "| UNKNOWN_LOGO | unknown_logo | 1 |" in text
 
 
 def test_iou_gold_from_csv(tmp_path):
