@@ -246,9 +246,35 @@ def test_labels_on_deduped_rows_are_flagged():
     assert "1 labels are on DEDUPED rows" in mt.render(Path("r"), m)
 
 
+def test_rejected_true_logos_splits_sizes_reasons_and_writes_a_sheet(tmp_path):
+    import rejected_true_logos as rtl
+    from PIL import Image
+    (tmp_path / "reports").mkdir()
+    (tmp_path / "crops").mkdir()
+    Image.new("RGB", (40, 20), "red").save(tmp_path / "crops" / "c0.jpg")
+    pd.DataFrame([{"det_id": 0, "loose_bbox": "[0, 0, 40, 20]", "box_area_ratio": 0.001, "confidence": 90,
+                   "reasoning": "Plain text on a banner.", "crop_path": "crops/c0.jpg"},
+                  {"det_id": 1, "loose_bbox": "[0, 0, 200, 100]", "box_area_ratio": 0.05, "confidence": 85,
+                   "reasoning": "Clear wordmark.", "crop_path": "crops/missing.jpg"},
+                  {"det_id": 2, "loose_bbox": "[0, 0, 50, 50]", "box_area_ratio": 0.01, "confidence": 80,
+                   "reasoning": "", "crop_path": ""}]).to_csv(tmp_path / "rows.csv", index=False)
+    pd.DataFrame([{"det_id": 0, "gold_class": "eni", "router_decision": "REJECT"},
+                  {"det_id": 1, "gold_class": "uber", "router_decision": "ACCEPT"},
+                  {"det_id": 2, "gold_class": "eni", "router_decision": "DEDUPED"}]
+                 ).to_csv(tmp_path / "reports" / "iou_match_matched.csv", index=False)
+    rejected, kept = rtl.load(tmp_path)
+    assert [r["det_id"] for r in rejected] == [0] and [r["det_id"] for r in kept] == [1]   # DEDUPED in neither
+    assert rejected[0]["short_side"] == 20
+    assert rtl.main(["--run", str(tmp_path)]) == 0
+    text = (tmp_path / "reports" / "rejected_true_logos.md").read_text(encoding="utf-8")
+    assert "| text | 1 |" in text and "| banner | 1 |" in text and "1 crops" in text
+    assert (tmp_path / "reports" / "rejected_true_logos.png").exists()
+    assert (tmp_path / "reports" / "rejected_true_logos.csv").exists()
+
+
 EVAL_SCRIPTS = ("acceptance_evidence", "blind_vs_hinted", "faiss_rebenchmark", "faiss_selfmatch", "iou_match",
                 "label_request", "merge_ablation", "metrics", "ordering_checks", "refinement_report",
-                "sampling_rate_check", "score_distribution", "vlm_cost", "watermark_report")
+                "rejected_true_logos", "sampling_rate_check", "score_distribution", "vlm_cost", "watermark_report")
 
 
 @pytest.mark.parametrize("name", EVAL_SCRIPTS)
