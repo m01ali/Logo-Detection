@@ -40,6 +40,13 @@ HASH_EXCLUDED_KEYS: tuple[tuple[str, ...], ...] = (
     ("run", "device"),
 )
 
+# Settings added after the first GPU runs: left out of the hash while they hold their default, so
+# the run directories made before them keep their config_hash and are not re-run stage by stage.
+HASH_NEUTRAL_DEFAULTS: dict[tuple[str, ...], Any] = {
+    ("vlm", "crop_min_pixels"): None,
+    ("vlm", "wordmark_rule"): False,
+}
+
 GDINO_QUERIES_M2: tuple[str, ...] = (
     "a television network watermark",
     "a channel logo in the corner of the screen",
@@ -317,6 +324,13 @@ class VlmCfg:
         default_factory=lambda: ["tight_crop", "enlarged_crop", "full_frame", "temporal_context"])
     log_hint_composition: bool = True
     scoring: VlmScoringCfg = field(default_factory=VlmScoringCfg)
+    # 19 A12 (route-three finding): upscale the tight and enlarged crops to at least this many
+    # pixels before the VLM; null keeps the processor default, under which a small crop is a
+    # handful of image tokens. Must not exceed max_pixels.
+    crop_min_pixels: int | None = None
+    # 19 A12: one paragraph after the not_logo definition (wordmarks on sponsor boards are
+    # logos; an unreadable crop is a logo with brand UNKNOWN; garbled OCR is no evidence).
+    wordmark_rule: bool = False
 
 
 @dataclass
@@ -679,6 +693,9 @@ def validate_pipeline_cfg(cfg: PipelineCfg) -> None:
     bad_lists = [m for m in cfg.ocr.matching.match_lists if m not in ("canonical", "audio")]
     if bad_lists:
         raise ConfigError(f"ocr.matching.match_lists: only canonical/audio allowed (T26), got {bad_lists}")
+    if cfg.vlm.crop_min_pixels is not None and not 0 < cfg.vlm.crop_min_pixels <= cfg.vlm.max_pixels:
+        raise ConfigError("vlm.crop_min_pixels must be positive and at most vlm.max_pixels "
+                          "(the processor would shrink the crop back to max_pixels)")
     if cfg.sampling.temporal_window < 1:
         raise ConfigError("sampling.temporal_window must be >= 1")
     if any(abs(o) > cfg.sampling.temporal_window or o == 0 for o in cfg.sampling.temporal_offsets_for_vlm):
@@ -697,6 +714,12 @@ def _strip_excluded(d: dict) -> dict:
         for k in keypath[:-1]:
             node = node.get(k, {})
         node.pop(keypath[-1], None)
+    for keypath, default in HASH_NEUTRAL_DEFAULTS.items():
+        node = d
+        for k in keypath[:-1]:
+            node = node.get(k, {})
+        if keypath[-1] in node and node[keypath[-1]] == default:
+            node.pop(keypath[-1])
     return d
 
 

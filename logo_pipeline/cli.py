@@ -6,8 +6,9 @@
 runs need no per-video YAML). ``brands validate|hash|add`` are the T5 commands.
 
 M3 additions: ``router-only`` (T61), ``harness`` (T60), ``vlm-spike`` (T30),
-``reports`` / ``checkpoint-check`` / ``package`` (T77), ``faiss selfmatch|rebenchmark``
-(T51/T54) and ``eval <script> ...`` (any ``eval/<script>.py`` with its own flags).
+``vlm-ab`` (19 A12), ``reports`` / ``checkpoint-check`` / ``package`` (T77),
+``faiss selfmatch|rebenchmark`` (T51/T54) and ``eval <script> ...`` (any
+``eval/<script>.py`` with its own flags).
 """
 
 from __future__ import annotations
@@ -68,6 +69,14 @@ def cmd_vlm_spike(args: argparse.Namespace) -> int:
     verdict = run_spike(ctx, n=args.n, seed=args.seed)
     print(f"{'PASS' if verdict['passed'] else 'FAIL'}: wrote {ctx.path(SPIKE_REPORT)}")
     return 0 if verdict["passed"] else 1
+
+
+def cmd_vlm_ab(args: argparse.Namespace) -> int:
+    from .vlm_ab import run_ab
+    path = run_ab(Path(args.run), args.sets, args.tag, {"rescue": args.n_rescue, "held": args.n_held,
+                                                        "negative": args.n_neg}, args.seed, _repo_root())
+    print(f"wrote {path}")
+    return 0
 
 
 def cmd_reports(args: argparse.Namespace) -> int:
@@ -196,6 +205,18 @@ def build_parser() -> argparse.ArgumentParser:
     vs.add_argument("--n", type=int, default=50)
     vs.add_argument("--seed", type=int, default=42)
     vs.set_defaults(func=cmd_vlm_spike)
+
+    ab = sub.add_parser("vlm-ab", help="Re-run the hinted VLM call on a sampled subset of a route-three run "
+                                       "under changed VLM settings (19 A12).")
+    ab.add_argument("--run", required=True)
+    ab.add_argument("--tag", required=True, help="names vlm/ab_<tag>.jsonl and reports/vlm_ab_<tag>.md")
+    ab.add_argument("--set", action="append", default=[], dest="sets", metavar="KEY=VALUE",
+                    help="config override, e.g. vlm.crop_min_pixels=50176 (repeatable)")
+    ab.add_argument("--n-rescue", type=int, default=40)
+    ab.add_argument("--n-held", type=int, default=20)
+    ab.add_argument("--n-neg", type=int, default=40)
+    ab.add_argument("--seed", type=int, default=42)
+    ab.set_defaults(func=cmd_vlm_ab)
 
     rp = sub.add_parser("reports", help="Every report that applies to a run (T77 step 4).")
     rp.add_argument("--run", required=True)

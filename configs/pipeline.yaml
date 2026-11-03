@@ -222,6 +222,8 @@ vlm:
   - full_frame
   - temporal_context
   log_hint_composition: true
+  crop_min_pixels: null       # 19 A12: e.g. 50176 upscales small crops before the VLM; null = processor default
+  wordmark_rule: false        # 19 A12: wordmark paragraph after the not_logo definition (client decision)
   scoring:
     enabled: false
     labels:

@@ -390,16 +390,32 @@ def build_closed_set_candidates(
     return out
 
 
+def wordmark_paragraph(blind: bool) -> str:
+    """M3 19 A12: the paragraph ``wordmark_rule`` adds after the not_logo definition."""
+    text = (
+        "Brand names shown on sponsor boards, banners, kits, products or on-screen graphics ARE "
+        "logos (wordmarks), even when they are text only. Decide \"is_logo\" from the images: a "
+        "brand mark you cannot read or name is still a \"logo\" with brand \"UNKNOWN\", and one "
+        "cut off at the edge of the crop is a \"partial_logo\".\n"
+    )
+    if not blind:
+        text += ("The OCR hint is often misread: unreadable or unmatched OCR text is never evidence "
+                 "that a region is not a logo.\n")
+    return text + "\n"
+
+
 def build_final_instruction(
     candidates: list[str],
     brand_mode: str,
     channel_watermark: str,
     blind: bool = False,
+    wordmark_rule: bool = False,
 ) -> str:
     """The question + output schema shown to the VLM after all signals.
 
     ``blind`` (M3 T33/T67) renders the same question for a call that saw images only: no
     reference to hints, no channel-watermark line, and a signal vocabulary of image signals.
+    ``wordmark_rule`` (M3 19 A12) adds ``wordmark_paragraph`` after the not_logo definition.
     """
     watermark_note = ""
     if channel_watermark and not blind:
@@ -451,6 +467,7 @@ def build_final_instruction(
         "and score bugs, jersey or player numbers, clocks and timers, generic icons or UI "
         "elements, national or regional flags, faces or people, unbranded products, and "
         "random shapes, patterns or textures. These are \"not_logo\".\n\n"
+        + (wordmark_paragraph(blind) if wordmark_rule else "") +
         "Answer:\n"
         "(i)   Is the detected region a **logo**, a **partial logo**, or **not a logo**?\n"
         + brand_rule +
@@ -493,12 +510,14 @@ def _build_vlm_content(
     brand_mode: str,
     channel_watermark: str,
     blind: bool = False,
+    wordmark_rule: bool = False,
 ) -> list[dict]:
     """
     Assemble the multi-image content list for a single Qwen VLM call.
 
     ``blind`` (M3 T33) drops every text-hint section and the watermark line whatever
-    ``signals`` says, and asks the blind form of the final question.
+    ``signals`` says, and asks the blind form of the final question. ``wordmark_rule``
+    is passed to ``build_final_instruction`` (M3 19 A12).
 
     Section headers use the CANONICAL_SIGNALS names so the model can echo
     them back verbatim in `signals_used`. Disabled signals are omitted:
@@ -579,7 +598,8 @@ def _build_vlm_content(
     candidates = build_closed_set_candidates(audio_brands, faiss_hits, signals, channel_watermark)
     content.append({
         "type": "text",
-        "text": build_final_instruction(candidates, brand_mode, channel_watermark, blind=blind),
+        "text": build_final_instruction(candidates, brand_mode, channel_watermark, blind=blind,
+                                        wordmark_rule=wordmark_rule),
     })
 
     return content

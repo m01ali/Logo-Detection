@@ -18,6 +18,12 @@ detector source (``--compare-run`` adds the same figure for a second run, e.g.
 the merge-off ablation). Detector recall on the Roboflow set is not reported
 (out of scope; the set has no false negatives by construction).
 
+Besides ``iou_match.md`` and ``iou_match_per_class.csv``: ``iou_match_matched.csv``
+(each matched box with its decision, reason code and VLM decision) and
+``iou_match_unmatched.csv`` (each detection without a gold box, with its best
+IoU against the frame's gold boxes) — the inputs of ``rejected_true_logos`` and
+``vlm-ab``.
+
 Usage::
 
     python eval/iou_match.py --run runs/14/<run_id> --gold ~/Downloads/logo2.yolov11/train/labels \\
@@ -94,7 +100,8 @@ def evaluate(rows: list[dict], gold: dict[int, list[dict]], iou_t: float, box_ke
             by_frame[r["frame_idx"]].append(r)
     res = {"all": Counter(), "no_channel": Counter(), "per_class": defaultdict(Counter), "decisions": Counter(),
            "brand_correct": 0, "accept": Counter(), "known_routed_unknown": 0, "recall_by_source": Counter(),
-           "gold_total": 0, "reasons": Counter(), "vlm_decisions": Counter(), "matched_rows": []}
+           "gold_total": 0, "reasons": Counter(), "vlm_decisions": Counter(), "matched_rows": [],
+           "unmatched_rows": []}
     for fi, g in gold.items():
         dets = by_frame.get(fi, [])
         pairs = match_frame(g, dets, iou_t, box_key)
@@ -111,6 +118,9 @@ def evaluate(rows: list[dict], gold: dict[int, list[dict]], iou_t: float, box_ke
             if di not in matched_d:
                 res["all"]["detection_without_gold"] += 1
                 res["no_channel"]["detection_without_gold"] += 1
+                best = max((iou(gb["box"], d[box_key]) for gb in g), default=0.0)
+                res["unmatched_rows"].append((fi, d.get("det_id"), round(best, 4), d.get("router_decision"),
+                                              d.get("reason_code"), d.get("vlm_decision")))
         for gi, di, _ in pairs:
             d, gb = dets[di], g[gi]
             dec = d.get("router_decision")
@@ -218,6 +228,9 @@ def main(argv: list[str] | None = None) -> int:
     write_csv(out / "iou_match_matched.csv", ["frame_idx", "det_id", "gold_class", "canonical_brand", "brand_correct",
                                               "router_decision", "reason_code", "vlm_decision"],
               sorted(loose["matched_rows"], key=lambda r: (r[0], -1 if r[1] is None else r[1])))
+    write_csv(out / "iou_match_unmatched.csv", ["frame_idx", "det_id", "max_iou_with_gold", "router_decision",
+                                                "reason_code", "vlm_decision"],
+              sorted(loose["unmatched_rows"], key=lambda r: (r[0], -1 if r[1] is None else r[1])))
     print(f"wrote {out / 'iou_match.md'}: matched {loose['all'].get('matched', 0)} of {loose['gold_total']} gold")
     return 0
 

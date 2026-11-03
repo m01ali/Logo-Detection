@@ -167,6 +167,7 @@ class DetectionInputs:
         ocr_data = ({"source": ocr_row.get("ocr_source"), "lines": ocr_row.get("ocr_lines", [])}
                     if ocr_row and not blind and "ocr" in self.text_signals else None)
         watermark = "" if blind else self.channel_watermark
+        vcfg = self.ctx.cfg.vlm
         content = _build_vlm_content(
             crop_img=tight if "tight_crop" in signals else None,
             enlarged_img=enlarged if "enlarged_crop" in signals else None,
@@ -174,8 +175,15 @@ class DetectionInputs:
             temporal_pairs=temporal if "temporal_context" in signals else [],
             detection={"score": rep["det_score"], "timecode_seconds": sframe["timecode_s"]},
             audio_brands=audio, faiss_hits=hits, ocr_data=ocr_data, signals=set(signals),
-            brand_mode=self.ctx.cfg.vlm.brand_mode, channel_watermark=watermark, blind=blind,
+            brand_mode=vcfg.brand_mode, channel_watermark=watermark, blind=blind,
+            wordmark_rule=vcfg.wordmark_rule,
         )
+        if vcfg.crop_min_pixels:
+            # qwen_vl_utils resizes each image to at least its ``min_pixels`` (19 A12); the frames keep
+            # the default, which already brings them down to max_pixels.
+            for item in content:
+                if item.get("type") == "image" and (item["image"] is tight or item["image"] is enlarged):
+                    item["min_pixels"] = vcfg.crop_min_pixels
         composition = [] if blind else _hint_composition(audio, hits, ocr_row if ocr_data else None, watermark)
         return content, composition, sorted(signals)
 
@@ -214,7 +222,8 @@ class VlmStage(Stage):
         det_ids = sorted(r["det_id"] for r in ctx.read_jsonl(MERGED_DETECTIONS_FILE))
         hinted = JsonlAppender(ctx.path(VLM_HINTED_FILE), ctx.header(
             "vlm", model_id=vcfg.model_id, quantisation=vcfg.quantisation, brand_mode=vcfg.brand_mode,
-            pass_type="hinted"), truncate=ctx.force and do_hinted)
+            pass_type="hinted", crop_min_pixels=vcfg.crop_min_pixels, wordmark_rule=vcfg.wordmark_rule),
+            truncate=ctx.force and do_hinted)
         comp = JsonlAppender(ctx.path(VLM_HINT_COMPOSITION_FILE), ctx.header("vlm", pass_type="hint_composition"),
                              truncate=ctx.force and do_hinted)
         blind = (JsonlAppender(ctx.path(VLM_BLIND_FILE), ctx.header(
