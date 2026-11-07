@@ -72,6 +72,8 @@ def load(run_dir: Path) -> tuple[list[dict], list[dict]]:
 
 
 def contact_sheet(run_dir: Path, rows: list[dict], path: Path) -> int:
+    """Tiles each row's ``crop_path``, labelled ``label_top`` / ``label_bottom`` when given,
+    else ``det_id gold_class`` / ``conf <confidence>``."""
     from PIL import Image, ImageDraw
     tiles = []
     for r in rows:
@@ -80,7 +82,8 @@ def contact_sheet(run_dir: Path, rows: list[dict], path: Path) -> int:
             continue
         im = Image.open(Path(run_dir) / p).convert("RGB")
         im.thumbnail((TILE_W, TILE_H))
-        tiles.append((im, f"{r['det_id']} {r['gold_class']}"[:28], f"conf {r.get('confidence')}"))
+        tiles.append((im, (r.get("label_top") or f"{r['det_id']} {r['gold_class']}")[:28],
+                      (r.get("label_bottom") or f"conf {r.get('confidence')}")[:28]))
     if not tiles:
         return 0
     n_rows = (len(tiles) + COLS - 1) // COLS

@@ -272,9 +272,33 @@ def test_rejected_true_logos_splits_sizes_reasons_and_writes_a_sheet(tmp_path):
     assert (tmp_path / "reports" / "rejected_true_logos.csv").exists()
 
 
+def test_vlm_ab_review_lists_negative_flips_and_brand_misses(tmp_path):
+    import vlm_ab_review as vr
+    from PIL import Image
+    (tmp_path / "reports").mkdir()
+    (tmp_path / "crops").mkdir()
+    Image.new("RGB", (40, 20), "blue").save(tmp_path / "crops" / "c3.jpg")
+    pd.DataFrame([{"det_id": d, "crop_path": f"crops/c{d}.jpg"} for d in (1, 2, 3, 4)]
+                 ).to_csv(tmp_path / "rows.csv", index=False)
+    cols = ["det_id", "group", "gold_class", "run_is_logo", "variant_is_logo", "run_brand", "variant_brand",
+            "variant_brand_canonical", "variant_brand_correct", "variant_confidence", "elapsed_s", "variant_reasoning"]
+    pd.DataFrame([[1, "rescue", "eni", "not_logo", "logo", "", "enilive", "enilive", False, 90, 1, "a"],
+                  [2, "rescue", "eni", "not_logo", "logo", "", "eni", "eni", True, 90, 1, "b"],
+                  [3, "negative", "", "not_logo", "logo", "", "UNKNOWN", "UNKNOWN", False, 80, 1, "c | d"],
+                  [4, "negative", "", "not_logo", "not_logo", "", "", "", False, 100, 1, "e"]],
+                 columns=cols).to_csv(tmp_path / "reports" / "vlm_ab_t.csv", index=False)
+    flips, misses = vr.load(tmp_path, "t")
+    assert [r["det_id"] for r in flips] == ["3"] and [r["det_id"] for r in misses] == ["1"]
+    assert vr.main(["--run", str(tmp_path), "--tag", "t"]) == 0
+    text = (tmp_path / "reports" / "vlm_ab_t_review.md").read_text(encoding="utf-8")
+    assert "| eni | enilive | enilive | 1 |" in text and "c / d" in text and "(1 crops" in text
+    assert (tmp_path / "reports" / "vlm_ab_t_negatives.png").exists()
+
+
 EVAL_SCRIPTS = ("acceptance_evidence", "blind_vs_hinted", "faiss_rebenchmark", "faiss_selfmatch", "iou_match",
                 "label_request", "merge_ablation", "metrics", "ordering_checks", "refinement_report",
-                "rejected_true_logos", "sampling_rate_check", "score_distribution", "vlm_cost", "watermark_report")
+                "rejected_true_logos", "sampling_rate_check", "score_distribution", "vlm_ab_review", "vlm_cost",
+                "watermark_report")
 
 
 @pytest.mark.parametrize("name", EVAL_SCRIPTS)
