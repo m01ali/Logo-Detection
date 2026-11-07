@@ -1,6 +1,6 @@
-version: "2026-04-28"
+version: "2026-11-07"
 source: "Roboflow project antos-workspace-cttem, dataset export (see /Users/alii/Downloads/logo2.yolov11/data.yaml), data.yaml names[]"
-content_hash: "sha256:f1f139865d2559fd3a7463730054e7eb820d561e6d95e25e4489c5d22bacd857"
+content_hash: "sha256:bed239d33696eedc7720c2b683da7cb6419ce6c7f7c0aa098291799c5f58ce12"
 normalisation: "lowercase; unicode NFKD; strip accents; keep [a-z0-9 ]; collapse spaces"
 brands:
   - canonical: "10 e lotto"
@@ -60,6 +60,7 @@ brands:
   - canonical: "cisco"
   - canonical: "clarins"
   - canonical: "como calcio"
+    aliases: ["como", "como 1907"]
   - canonical: "conad"
   - canonical: "conad sapori e dintorni"
   - canonical: "continental"
@@ -90,6 +91,7 @@ brands:
   - canonical: "emirates"
   - canonical: "english first"
   - canonical: "eni"
+    aliases: ["enilive", "eni live", "enelive"]
   - canonical: "epson"
   - canonical: "esoxx one"
   - canonical: "estra"
@@ -174,6 +176,7 @@ brands:
   - canonical: "lemon soda"
   - canonical: "lenor"
   - canonical: "lesvegas play"
+    aliases: ["leovegas", "leovegas play"]
   - canonical: "lidl"
   - canonical: "lidl deluxe"
   - canonical: "lilla acqua"
@@ -277,6 +280,7 @@ brands:
   - canonical: "san benedetto succoso"
   - canonical: "san benedetto the"
   - canonical: "san bernardo acqua"
+    aliases: ["san bernardo", "s bernardo", "sbernardo"]
   - canonical: "sanitas farmaceutici"
   - canonical: "santander"
   - canonical: "santero 958"

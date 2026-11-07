@@ -390,17 +390,29 @@ def build_closed_set_candidates(
     return out
 
 
-def wordmark_paragraph(blind: bool) -> str:
-    """M3 19 A12: the paragraph ``wordmark_rule`` adds after the not_logo definition."""
+def wordmark_paragraph(blind: bool, exclusions: bool = False) -> str:
+    """M3 19 A12: the paragraph ``wordmark_rule`` adds after the not_logo definition.
+
+    ``exclusions`` (``vlm.wordmark_exclusions``) is the tightened text written after the first
+    ``vlm-ab`` round, where the plain paragraph turned clocks, scoreboards and captions into logos
+    and took their brand from elsewhere in the full frame.
+    """
+    where = "sponsor boards, banners, kits or products" if exclusions else \
+        "sponsor boards, banners, kits, products or on-screen graphics"
     text = (
-        "Brand names shown on sponsor boards, banners, kits, products or on-screen graphics ARE "
+        f"Brand names shown on {where} ARE "
         "logos (wordmarks), even when they are text only. Decide \"is_logo\" from the images: a "
         "brand mark you cannot read or name is still a \"logo\" with brand \"UNKNOWN\", and one "
         "cut off at the edge of the crop is a \"partial_logo\".\n"
     )
+    if exclusions:
+        text += ("Clocks, scores, scoreboards, captions, headlines and news tickers stay \"not_logo\" even "
+                 "though they are text. Name only a brand that is visible in the detected region itself; "
+                 "the full frame and nearby frames are context, never the source of the brand.\n")
     if not blind:
         text += ("The OCR hint is often misread: unreadable or unmatched OCR text is never evidence "
-                 "that a region is not a logo.\n")
+                 "that a region is not a logo" + (", and readable OCR text alone does not make it one"
+                                                  if exclusions else "") + ".\n")
     return text + "\n"
 
 
@@ -410,12 +422,14 @@ def build_final_instruction(
     channel_watermark: str,
     blind: bool = False,
     wordmark_rule: bool = False,
+    wordmark_exclusions: bool = False,
 ) -> str:
     """The question + output schema shown to the VLM after all signals.
 
     ``blind`` (M3 T33/T67) renders the same question for a call that saw images only: no
     reference to hints, no channel-watermark line, and a signal vocabulary of image signals.
-    ``wordmark_rule`` (M3 19 A12) adds ``wordmark_paragraph`` after the not_logo definition.
+    ``wordmark_rule`` (M3 19 A12) adds ``wordmark_paragraph`` after the not_logo definition,
+    in its tightened form when ``wordmark_exclusions``.
     """
     watermark_note = ""
     if channel_watermark and not blind:
@@ -467,7 +481,7 @@ def build_final_instruction(
         "and score bugs, jersey or player numbers, clocks and timers, generic icons or UI "
         "elements, national or regional flags, faces or people, unbranded products, and "
         "random shapes, patterns or textures. These are \"not_logo\".\n\n"
-        + (wordmark_paragraph(blind) if wordmark_rule else "") +
+        + (wordmark_paragraph(blind, wordmark_exclusions) if wordmark_rule else "") +
         "Answer:\n"
         "(i)   Is the detected region a **logo**, a **partial logo**, or **not a logo**?\n"
         + brand_rule +
@@ -511,13 +525,14 @@ def _build_vlm_content(
     channel_watermark: str,
     blind: bool = False,
     wordmark_rule: bool = False,
+    wordmark_exclusions: bool = False,
 ) -> list[dict]:
     """
     Assemble the multi-image content list for a single Qwen VLM call.
 
     ``blind`` (M3 T33) drops every text-hint section and the watermark line whatever
     ``signals`` says, and asks the blind form of the final question. ``wordmark_rule``
-    is passed to ``build_final_instruction`` (M3 19 A12).
+    and ``wordmark_exclusions`` are passed to ``build_final_instruction`` (M3 19 A12).
 
     Section headers use the CANONICAL_SIGNALS names so the model can echo
     them back verbatim in `signals_used`. Disabled signals are omitted:
@@ -599,7 +614,7 @@ def _build_vlm_content(
     content.append({
         "type": "text",
         "text": build_final_instruction(candidates, brand_mode, channel_watermark, blind=blind,
-                                        wordmark_rule=wordmark_rule),
+                                        wordmark_rule=wordmark_rule, wordmark_exclusions=wordmark_exclusions),
     })
 
     return content

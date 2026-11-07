@@ -45,6 +45,7 @@ HASH_EXCLUDED_KEYS: tuple[tuple[str, ...], ...] = (
 HASH_NEUTRAL_DEFAULTS: dict[tuple[str, ...], Any] = {
     ("vlm", "crop_min_pixels"): None,
     ("vlm", "wordmark_rule"): False,
+    ("vlm", "wordmark_exclusions"): False,
 }
 
 GDINO_QUERIES_M2: tuple[str, ...] = (
@@ -331,6 +332,9 @@ class VlmCfg:
     # 19 A12: one paragraph after the not_logo definition (wordmarks on sponsor boards are
     # logos; an unreadable crop is a logo with brand UNKNOWN; garbled OCR is no evidence).
     wordmark_rule: bool = False
+    # 19 A12, second vlm-ab round: the tightened paragraph (clocks, scoreboards and captions stay
+    # not_logo; the brand must be visible in the region itself). Needs wordmark_rule.
+    wordmark_exclusions: bool = False
 
 
 @dataclass
@@ -696,6 +700,8 @@ def validate_pipeline_cfg(cfg: PipelineCfg) -> None:
     if cfg.vlm.crop_min_pixels is not None and not 0 < cfg.vlm.crop_min_pixels <= cfg.vlm.max_pixels:
         raise ConfigError("vlm.crop_min_pixels must be positive and at most vlm.max_pixels "
                           "(the processor would shrink the crop back to max_pixels)")
+    if cfg.vlm.wordmark_exclusions and not cfg.vlm.wordmark_rule:
+        raise ConfigError("vlm.wordmark_exclusions tightens the wordmark paragraph and needs vlm.wordmark_rule")
     if cfg.sampling.temporal_window < 1:
         raise ConfigError("sampling.temporal_window must be >= 1")
     if any(abs(o) > cfg.sampling.temporal_window or o == 0 for o in cfg.sampling.temporal_offsets_for_vlm):

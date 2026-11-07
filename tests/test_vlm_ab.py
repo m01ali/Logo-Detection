@@ -28,10 +28,10 @@ def test_new_vlm_settings_leave_the_hash_alone_at_their_defaults(repo_root):
     video = {"video_id": "v", "source": "v.mp4"}
     r = resolve_config(str(repo_root / "configs" / "pipeline.yaml"), video)
     before = copy.deepcopy(r.resolved)                       # the resolved dict as older code built it
-    del before["vlm"]["crop_min_pixels"], before["vlm"]["wordmark_rule"]
+    del before["vlm"]["crop_min_pixels"], before["vlm"]["wordmark_rule"], before["vlm"]["wordmark_exclusions"]
     vd = {k: v for k, v in to_dict(r.video).items() if k != "overrides"}
     assert compute_config_hash(before, vd) == r.config_hash
-    for o in ({"crop_min_pixels": 50176}, {"wordmark_rule": True}):
+    for o in ({"crop_min_pixels": 50176}, {"wordmark_rule": True}, {"wordmark_rule": True, "wordmark_exclusions": True}):
         assert resolve_config(str(repo_root / "configs" / "pipeline.yaml"),
                               {**video, "overrides": {"vlm": o}}).config_hash != r.config_hash
 
@@ -50,6 +50,23 @@ def test_wordmark_paragraph_is_opt_in_and_has_no_hint_reference_when_blind():
     assert hinted.index("These are \"not_logo\"") < hinted.index("ARE logos") < hinted.index("Answer:")
     blind = gh.build_final_instruction([], "open", "", blind=True, wordmark_rule=True)
     assert "ARE logos (wordmarks)" in blind and "hint" not in blind.lower()
+
+
+def test_tightened_wordmark_paragraph_keeps_text_graphics_out():
+    plain = gh.wordmark_paragraph(blind=False)
+    tight = gh.wordmark_paragraph(blind=False, exclusions=True)
+    assert "on-screen graphics" in plain and "on-screen graphics" not in tight      # the first round's text is kept
+    assert "scoreboards, captions, headlines and news tickers stay \"not_logo\"" in tight
+    assert "never the source of the brand" in tight and "readable OCR text alone does not make it one" in tight
+    assert "hint" not in gh.wordmark_paragraph(blind=True, exclusions=True).lower()
+    text = gh.build_final_instruction([], "open", "", wordmark_rule=True, wordmark_exclusions=True)
+    assert tight.strip() in text
+
+
+def test_wordmark_exclusions_needs_wordmark_rule(repo_root):
+    with pytest.raises(ConfigError):
+        resolve_config(str(repo_root / "configs" / "pipeline.yaml"),
+                       {"video_id": "v", "source": "v.mp4", "overrides": {"vlm": {"wordmark_exclusions": True}}})
 
 
 def test_crop_min_pixels_reaches_the_two_crops_only(tmp_path, repo_root):

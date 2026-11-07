@@ -176,7 +176,7 @@ class DetectionInputs:
             detection={"score": rep["det_score"], "timecode_seconds": sframe["timecode_s"]},
             audio_brands=audio, faiss_hits=hits, ocr_data=ocr_data, signals=set(signals),
             brand_mode=vcfg.brand_mode, channel_watermark=watermark, blind=blind,
-            wordmark_rule=vcfg.wordmark_rule,
+            wordmark_rule=vcfg.wordmark_rule, wordmark_exclusions=vcfg.wordmark_exclusions,
         )
         if vcfg.crop_min_pixels:
             # qwen_vl_utils resizes each image to at least its ``min_pixels`` (19 A12); the frames keep
@@ -222,7 +222,8 @@ class VlmStage(Stage):
         det_ids = sorted(r["det_id"] for r in ctx.read_jsonl(MERGED_DETECTIONS_FILE))
         hinted = JsonlAppender(ctx.path(VLM_HINTED_FILE), ctx.header(
             "vlm", model_id=vcfg.model_id, quantisation=vcfg.quantisation, brand_mode=vcfg.brand_mode,
-            pass_type="hinted", crop_min_pixels=vcfg.crop_min_pixels, wordmark_rule=vcfg.wordmark_rule),
+            pass_type="hinted", crop_min_pixels=vcfg.crop_min_pixels, wordmark_rule=vcfg.wordmark_rule,
+            wordmark_exclusions=vcfg.wordmark_exclusions),
             truncate=ctx.force and do_hinted)
         comp = JsonlAppender(ctx.path(VLM_HINT_COMPOSITION_FILE), ctx.header("vlm", pass_type="hint_composition"),
                              truncate=ctx.force and do_hinted)
