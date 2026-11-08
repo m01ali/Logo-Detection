@@ -295,10 +295,46 @@ def test_vlm_ab_review_lists_negative_flips_and_brand_misses(tmp_path):
     assert (tmp_path / "reports" / "vlm_ab_t_negatives.png").exists()
 
 
+def test_vlm_ab_compare_pairs_two_tags_and_lists_disagreements(tmp_path):
+    import vlm_ab_compare as vc
+    from PIL import Image
+    (tmp_path / "reports").mkdir()
+    (tmp_path / "crops").mkdir()
+    Image.new("RGB", (40, 20), "green").save(tmp_path / "crops" / "c1.jpg")
+    pd.DataFrame([{"det_id": d, "crop_path": f"crops/c{d}.jpg"} for d in range(1, 7)]
+                 ).to_csv(tmp_path / "rows.csv", index=False)
+    cols = ["det_id", "group", "gold_class", "run_is_logo", "variant_is_logo", "run_brand", "variant_brand",
+            "variant_brand_canonical", "variant_brand_correct", "variant_confidence", "elapsed_s", "variant_reasoning"]
+
+    def tag(name, calls, brands):
+        groups = ["rescue", "rescue", "held", "negative", "negative", "negative"]
+        gold = ["eni", "uber", "eni", "", "", ""]
+        pd.DataFrame([[d, g, gc, "x", c, "", b, b, b == gc and b != "", 90, 1, f"{name} {d}"]
+                      for d, g, gc, c, b in zip(range(1, 7), groups, gold, calls, brands)],
+                     columns=cols).to_csv(tmp_path / "reports" / f"vlm_ab_{name}.csv", index=False)
+
+    tag("a", ["logo", "logo", "logo", "logo", "logo", "not_logo"], ["eni", "uber", "eni", "rolex", "", ""])
+    tag("b", ["not_logo", "logo", "logo", "not_logo", "not_logo", "not_logo"], ["", "uber", "eni", "", "", ""])
+    paired, only_a, only_b = vc.load(tmp_path, "a", "b")
+    assert len(paired) == 6 and (only_a, only_b) == (0, 0)
+    stats = vc.summarise(paired)
+    assert (stats["rescue"]["a"], stats["rescue"]["b"], stats["rescue"]["only_a"]) == (2, 1, 1)
+    assert (stats["negative"]["a"], stats["negative"]["b"], stats["negative"]["only_b"]) == (1, 3, 2)
+    assert stats["held"]["only_a"] == stats["held"]["only_b"] == 0
+    assert [r["det_id"] for r in vc.disagreements(paired)] == [1, 4, 5]
+    assert vc.sign_test(0, 0) == 1.0 and vc.sign_test(5, 0) == pytest.approx(0.0625)
+    assert vc.sign_test(9, 0) == pytest.approx(2 / 512) and vc.sign_test(3, 3) == 1.0
+    assert vc.main(["--run", str(tmp_path), "--a", "a", "--b", "b"]) == 0
+    text = (tmp_path / "reports" / "vlm_ab_compare_a_vs_b.md").read_text(encoding="utf-8")
+    assert "| rescue | 2 | logo or partial | 2 (100.0%) | 1 (50.0%) | 1 | 0 | 1.000 |" in text
+    assert "| 4 | negative | — | logo | rolex | not_logo | — |" in text and "(1)" in text
+    assert (tmp_path / "reports" / "vlm_ab_compare_a_vs_b.png").exists()
+
+
 EVAL_SCRIPTS = ("acceptance_evidence", "blind_vs_hinted", "faiss_rebenchmark", "faiss_selfmatch", "iou_match",
                 "label_request", "merge_ablation", "metrics", "ordering_checks", "refinement_report",
-                "rejected_true_logos", "sampling_rate_check", "score_distribution", "vlm_ab_review", "vlm_cost",
-                "watermark_report")
+                "rejected_true_logos", "sampling_rate_check", "score_distribution", "vlm_ab_compare",
+                "vlm_ab_review", "vlm_cost", "watermark_report")
 
 
 @pytest.mark.parametrize("name", EVAL_SCRIPTS)
