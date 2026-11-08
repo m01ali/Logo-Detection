@@ -331,10 +331,31 @@ def test_vlm_ab_compare_pairs_two_tags_and_lists_disagreements(tmp_path):
     assert (tmp_path / "reports" / "vlm_ab_compare_a_vs_b.png").exists()
 
 
+def test_vlm_speed_probe_summaries_and_report():
+    import vlm_speed_probe as sp
+    assert sp.parse_smi("23, 41.46, 2520, 3105, P2") == {"utilization.gpu": 23.0, "power.draw": 41.46,
+                                                           "clocks.sm": 2520.0, "clocks.max.sm": 3105.0,
+                                                           "pstate": "P2"}
+    assert sp.parse_smi("[N/A], 1, 2, 3, P0") is None and sp.parse_smi("1, 2") is None
+    calls = [{"det_id": 3, "preprocess_s": 0.5, "prefill_s": 1.0, "full_s": 11.0, "total_s": 11.5,
+              "input_tokens": 1200, "image_tokens": 600, "new_tokens": 101},
+             {"det_id": 9, "preprocess_s": 0.7, "prefill_s": 2.0, "full_s": 7.0, "total_s": 7.7,
+              "input_tokens": 1300, "image_tokens": 700, "new_tokens": 51}]
+    s = sp.summarise_calls(calls)
+    assert s["decode_tok_s"] == pytest.approx(10.0) and s["prefill_s"] == pytest.approx(1.5) and s["n"] == 2
+    load = sp.summarise_samples([{"cpu_system": 50, "utilization.gpu": 20, "pstate": "P2"},
+                                 {"cpu_system": 70, "utilization.gpu": 40, "pstate": "P2"}])
+    assert load["cpu_system"] == (60, 70) and load["power.draw"] is None and load["pstate"] == [("P2", 2)]
+    assert sp.pick_det_ids({i: None for i in range(10)}, 5) == [0, 2, 4, 6, 8]
+    text = sp.render(Path("r"), "x", [], {"gpu": "g"}, 12.0, {"python_loop_s": 0.4}, calls, s, load)
+    assert "| 1.50 | 1.0 |" not in text and "| 0.60 | 1.50 | 10.0 | 76 | 1250 | 650 | 9.6 |" in text
+    assert "| system CPU % | 60 / 70 |" in text and "| power W | — |" in text
+
+
 EVAL_SCRIPTS = ("acceptance_evidence", "blind_vs_hinted", "faiss_rebenchmark", "faiss_selfmatch", "iou_match",
                 "label_request", "merge_ablation", "metrics", "ordering_checks", "refinement_report",
                 "rejected_true_logos", "sampling_rate_check", "score_distribution", "vlm_ab_compare",
-                "vlm_ab_review", "vlm_cost", "watermark_report")
+                "vlm_ab_review", "vlm_cost", "vlm_speed_probe", "watermark_report")
 
 
 @pytest.mark.parametrize("name", EVAL_SCRIPTS)
