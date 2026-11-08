@@ -5,8 +5,8 @@ Loads the model as the ``vlm`` stage does (the run's own settings plus any
 ``--set`` overrides, as ``vlm-ab``), then for ``--n`` detections of the run
 times three phases separately:
 
-* preprocessing: chat template, image fetch and resize, processor (CPU);
-* prefill: ``generate`` with ``max_new_tokens=1`` (the image and prompt pass);
+* Preprocessing: chat template, image fetch and resize, processor (CPU);
+* Prefill: ``generate`` with ``max_new_tokens=1`` (the image and prompt pass);
 * the full ``generate``, whose time beyond prefill is decoding, reported as
   new tokens per second.
 
